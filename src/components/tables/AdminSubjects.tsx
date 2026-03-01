@@ -907,7 +907,7 @@ export default function AdminSubjects() {
                   <SelectValue placeholder="Choose a class" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Unassign / No class</SelectItem>
+                  <SelectItem value="null">Unassign / No class</SelectItem>
                   {classes.map((c) => (
                     <SelectItem key={c.classId} value={c.classId.toString()}>
                       {c.className}

@@ -1,17 +1,27 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useModal } from "../../hooks/useModal";
 import { Modal } from "../ui/modal";
 import Button from "../ui/button/Button";
 import Input from "../form/input/InputField";
 import Label from "../form/Label";
 import api from "../../../lib/api";
+import Image from "next/image";
+
+interface ClassInfo {
+  className: string;
+  classId?: number;
+}
 
 interface UserProfile {
   firstName: string;
   lastName: string;
   email: string;
   phoneNumber: string;
+  role?: string;
+  isClassTeacher?: boolean;
+  classHead?: ClassInfo | null;
+  signatureUrl?: string | null;
 }
 
 export default function UserInfoCard() {
@@ -20,7 +30,6 @@ export default function UserInfoCard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Form state — will be updated whenever userData changes
   const [formData, setFormData] = useState<UserProfile>({
     firstName: "",
     lastName: "",
@@ -34,9 +43,15 @@ export default function UserInfoCard() {
     newPassword_confirmation: "",
   });
 
+  const [signatureFile, setSignatureFile] = useState<File | null>(null);
+  const [signaturePreview, setSignaturePreview] = useState<string | null>(null);
+  const [uploadingSignature, setUploadingSignature] = useState(false);
+
+  const signatureInputRef = useRef<HTMLInputElement>(null);
+
   const [updating, setUpdating] = useState(false);
 
-  // Fetch profile data
+  // Fetch user profile
   useEffect(() => {
     const fetchProfile = async () => {
       try {
@@ -48,11 +63,23 @@ export default function UserInfoCard() {
           lastName: data.lastName || "",
           email: data.email || "",
           phoneNumber: data.phoneNumber || "",
+          role: data.role,
+          isClassTeacher: data.isClassTeacher || data.role === "class_teacher" || false,
+          classHead: data.classHead || data.formClass || null,
+          signatureUrl: data.signatureUrl || data.signature || null,
         };
 
         setUserData(profile);
-        // Also prefill form immediately
-        setFormData(profile);
+        setFormData({
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          email: profile.email,
+          phoneNumber: profile.phoneNumber,
+        });
+
+        if (profile.signatureUrl) {
+          setSignaturePreview(`${process.env.NEXT_PUBLIC_FILE_URL}${profile.signatureUrl}`);
+        }
       } catch (err: any) {
         setError(err?.response?.data?.message || "Failed to load profile");
       } finally {
@@ -62,30 +89,6 @@ export default function UserInfoCard() {
 
     fetchProfile();
   }, []);
-
-  // CRITICAL FIX: Keep formData in sync with userData whenever it changes
-  // This ensures the form is always pre-filled correctly, even on first open
-  useEffect(() => {
-    if (userData) {
-      setFormData({
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        email: userData.email,
-        phoneNumber: userData.phoneNumber,
-      });
-    }
-  }, [userData]);
-
-  // Optional: Reset password fields when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setPasswordData({
-        currentPassword: "",
-        newPassword: "",
-        newPassword_confirmation: "",
-      });
-    }
-  }, [isOpen]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -97,12 +100,22 @@ export default function UserInfoCard() {
     setPasswordData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleSignatureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSignatureFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => setSignaturePreview(reader.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleSaveProfile = async () => {
     setUpdating(true);
     try {
       await api.patch("/profile", formData);
+      setUserData((prev) => (prev ? { ...prev, ...formData } : null));
       alert("Profile updated successfully!");
-      setUserData(formData);
       closeModal();
     } catch (err: any) {
       alert(err?.response?.data?.message || "Failed to update profile");
@@ -129,13 +142,50 @@ export default function UserInfoCard() {
         newPassword_confirmation: passwordData.newPassword_confirmation,
       });
       alert("Password changed successfully!");
-      setPasswordData({ currentPassword: "", newPassword: "", newPassword_confirmation: "" });
+      setPasswordData({
+        currentPassword: "",
+        newPassword: "",
+        newPassword_confirmation: "",
+      });
     } catch (err: any) {
       alert(err?.response?.data?.message || "Failed to change password");
     } finally {
       setUpdating(false);
     }
   };
+
+  const handleUploadSignature = async () => {
+    if (!signatureFile) {
+      alert("Please select a signature image first.");
+      return;
+    }
+
+    setUploadingSignature(true);
+    try {
+      const formDataToSend = new FormData();
+      formDataToSend.append("signature", signatureFile);
+
+      const res = await api.post("/profile/signature", formDataToSend, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      const newSignatureUrl = res.data.signatureUrl || res.data.signature;
+      setUserData((prev) =>
+        prev ? { ...prev, signatureUrl: newSignatureUrl } : null
+      );
+      setSignaturePreview(`${process.env.NEXT_PUBLIC_FILE_URL}${newSignatureUrl}`);
+      setSignatureFile(null);
+      if (signatureInputRef.current) signatureInputRef.current.value = "";
+
+      alert("Signature updated successfully!");
+    } catch (err: any) {
+      alert(err?.response?.data?.message || "Failed to upload signature");
+    } finally {
+      setUploadingSignature(false);
+    }
+  };
+
+  const isClassTeacher = userData?.isClassTeacher || false;
 
   if (loading) {
     return (
@@ -156,7 +206,7 @@ export default function UserInfoCard() {
   return (
     <div className="p-5 border border-gray-200 rounded-2xl dark:border-gray-800 lg:p-6">
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-        <div>
+        <div className="flex-1">
           <h4 className="text-lg font-semibold text-gray-800 dark:text-white/90 lg:mb-6">
             Personal Information
           </h4>
@@ -167,7 +217,7 @@ export default function UserInfoCard() {
                 First Name
               </p>
               <p className="text-sm font-medium text-gray-800 dark:text-white/90">
-                {userData?.firstName}
+                {userData?.firstName || "—"}
               </p>
             </div>
 
@@ -176,7 +226,7 @@ export default function UserInfoCard() {
                 Last Name
               </p>
               <p className="text-sm font-medium text-gray-800 dark:text-white/90">
-                {userData?.lastName}
+                {userData?.lastName || "—"}
               </p>
             </div>
 
@@ -185,7 +235,7 @@ export default function UserInfoCard() {
                 Email address
               </p>
               <p className="text-sm font-medium text-gray-800 dark:text-white/90">
-                {userData?.email}
+                {userData?.email || "—"}
               </p>
             </div>
 
@@ -197,6 +247,50 @@ export default function UserInfoCard() {
                 {userData?.phoneNumber || "Not provided"}
               </p>
             </div>
+
+            {isClassTeacher && (
+              <>
+                <div>
+                  <p className="mb-2 text-xs leading-normal text-gray-500 dark:text-gray-400">
+                    Role
+                  </p>
+                  <p className="text-sm font-medium text-green-600 dark:text-green-400">
+                    Class Teacher
+                  </p>
+                </div>
+
+                <div>
+                  <p className="mb-2 text-xs leading-normal text-gray-500 dark:text-gray-400">
+                    Class Head Of
+                  </p>
+                  <p className="text-sm font-medium text-gray-800 dark:text-white/90">
+                    {userData?.classHead?.className || "Not assigned yet"}
+                  </p>
+                </div>
+
+                <div className="col-span-1 lg:col-span-2">
+                  <p className="mb-2 text-xs leading-normal text-gray-500 dark:text-gray-400">
+                    Your Signature
+                  </p>
+                  {userData?.signatureUrl ? (
+                    <div className="inline-block rounded  bg-white p-3 dark:border-gray-600 dark:bg-gray-800">
+                      <Image
+                        src={`${process.env.NEXT_PUBLIC_FILE_URL}${userData.signatureUrl}`}
+                        alt="Your signature"
+                        width={300}
+                        height={100}
+                        className="max-h-20 w-auto object-contain"
+                        unoptimized
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-sm italic text-gray-500 dark:text-gray-400">
+                      No signature uploaded yet
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -223,158 +317,216 @@ export default function UserInfoCard() {
         </button>
       </div>
 
+      {/* ── Edit Modal ──────────────────────────────────────────────── */}
       <Modal isOpen={isOpen} onClose={closeModal} className="max-w-[700px] m-4">
-  <div className="no-scrollbar relative w-full max-w-[700px] overflow-y-auto rounded-3xl bg-white p-4 dark:bg-gray-900 lg:p-11">
-    {/* Show loading state in modal if formData isn't populated */}
-    {(!formData.firstName && !formData.email) ? (
-      <div className="p-8 text-center">
-        <p>Loading form data...</p>
-      </div>
-    ) : (
-      <>
-        <div className="px-2 pr-14">
-          <h4 className="mb-2 text-2xl font-semibold text-gray-800 dark:text-white/90">
-            Edit Personal Information
-          </h4>
-          <p className="mb-6 text-sm text-gray-500 dark:text-gray-400 lg:mb-7">
-            Update your details and change your password if needed.
-          </p>
+        <div className="no-scrollbar relative w-full max-w-[700px] overflow-y-auto rounded-3xl bg-white p-4 dark:bg-gray-900 lg:p-11">
+          {(!formData.firstName && !formData.email) ? (
+            <div className="p-8 text-center">
+              <p>Loading form data...</p>
+            </div>
+          ) : (
+            <>
+              <div className="px-2 pr-14">
+                <h4 className="mb-2 text-2xl font-semibold text-gray-800 dark:text-white/90">
+                  Edit Personal Information
+                </h4>
+                <p className="mb-6 text-sm text-gray-500 dark:text-gray-400 lg:mb-7">
+                  Update your details and change your password if needed.
+                </p>
+              </div>
+
+              <form onSubmit={(e) => e.preventDefault()} className="flex flex-col">
+                <div className="custom-scrollbar h-[450px] overflow-y-auto px-2 pb-3">
+                  {/* Personal Information */}
+                  <div>
+                    <h5 className="mb-5 text-lg font-medium text-gray-800 dark:text-white/90 lg:mb-6">
+                      Personal Information
+                    </h5>
+
+                    <div className="grid grid-cols-1 gap-x-6 gap-y-5 lg:grid-cols-2">
+                      <div>
+                        <Label>First Name</Label>
+                        <input
+                          type="text"
+                          name="firstName"
+                          value={formData.firstName}
+                          onChange={handleInputChange}
+                          placeholder="Enter first name"
+                          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+
+                      <div>
+                        <Label>Last Name</Label>
+                        <input
+                          type="text"
+                          name="lastName"
+                          value={formData.lastName}
+                          onChange={handleInputChange}
+                          placeholder="Enter last name"
+                          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+
+                      <div>
+                        <Label>Email Address</Label>
+                        <input
+                          type="email"
+                          name="email"
+                          value={formData.email}
+                          onChange={handleInputChange}
+                          disabled
+                          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 bg-gray-100 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 cursor-not-allowed"
+                        />
+                      </div>
+
+                      <div>
+                        <Label>Phone Number</Label>
+                        <input
+                          type="text"
+                          name="phoneNumber"
+                          value={formData.phoneNumber}
+                          onChange={handleInputChange}
+                          placeholder="Enter phone number"
+                          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Class Teacher Signature Section */}
+                  {isClassTeacher && (
+                    <div className="mt-10 border-t border-gray-200 pt-8 dark:border-gray-700">
+                      <h5 className="mb-5 text-lg font-medium text-gray-800 dark:text-white/90">
+                        Class Teacher Signature
+                      </h5>
+                      <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+                        This signature will appear on report cards, result sheets, and other official documents.
+                      </p>
+
+                      <div className="space-y-5">
+                        <div>
+                          <Label>Upload / Update Signature</Label>
+                          <Input
+                            ref={signatureInputRef}
+                            type="file"
+                            accept="image/*"
+                            onChange={handleSignatureChange}
+                          />
+                        </div>
+
+                        {(signaturePreview || userData?.signatureUrl) && (
+                          <div>
+                            <p className="mb-2 text-sm text-gray-500 dark:text-gray-400">Preview:</p>
+                            <div className="inline-block rounded border border-gray-300 bg-white p-4 dark:border-gray-600 dark:bg-gray-800">
+                              <Image
+                                src={signaturePreview || `${process.env.NEXT_PUBLIC_FILE_URL}${userData?.signatureUrl}`}
+                                alt="Signature preview"
+                                width={320}
+                                height={120}
+                                className="max-h-24 w-auto object-contain"
+                                unoptimized
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <Button
+                          type="button"
+                          onClick={handleUploadSignature}
+                          disabled={uploadingSignature || !signatureFile}
+                          className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
+                        >
+                          {uploadingSignature
+                            ? "Uploading..."
+                            : userData?.signatureUrl
+                            ? "Update Signature"
+                            : "Upload Signature"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Change Password */}
+                  <div className="mt-10 border-t border-gray-200 pt-8 dark:border-gray-700">
+                    <h5 className="mb-5 text-lg font-medium text-gray-800 dark:text-white/90 lg:mb-6">
+                      Change Password (Optional)
+                    </h5>
+
+                    <div className="grid grid-cols-1 gap-x-6 gap-y-5 lg:grid-cols-2">
+                      <div>
+                        <Label>Current Password</Label>
+                        <input
+                          type="password"
+                          name="currentPassword"
+                          value={passwordData.currentPassword}
+                          onChange={handlePasswordChange}
+                          placeholder="••••••••"
+                          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+
+                      <div>
+                        <Label>New Password</Label>
+                        <input
+                          type="password"
+                          name="newPassword"
+                          value={passwordData.newPassword}
+                          onChange={handlePasswordChange}
+                          placeholder="••••••••"
+                          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+
+                      <div>
+                        <Label>Confirm New Password</Label>
+                        <input
+                          type="password"
+                          name="newPassword_confirmation"
+                          value={passwordData.newPassword_confirmation}
+                          onChange={handlePasswordChange}
+                          placeholder="••••••••"
+                          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 px-2 mt-8 lg:justify-end">
+                  <Button variant="outline" onClick={closeModal} disabled={updating || uploadingSignature}>
+                    Cancel
+                  </Button>
+
+                  <Button
+                    onClick={handleSaveProfile}
+                    disabled={updating || uploadingSignature}
+                    className="!bg-[#1F6F43] hover:!bg-[#084d93]"
+                  >
+                    {updating ? "Saving..." : "Save Profile"}
+                  </Button>
+
+                  {(passwordData.currentPassword || passwordData.newPassword) && (
+                    <Button
+                      onClick={handleChangePassword}
+                      disabled={
+                        updating ||
+                        uploadingSignature ||
+                        passwordData.newPassword !== passwordData.newPassword_confirmation ||
+                        !passwordData.currentPassword ||
+                        !passwordData.newPassword
+                      }
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      {updating ? "Changing..." : "Change Password"}
+                    </Button>
+                  )}
+                </div>
+              </form>
+            </>
+          )}
         </div>
-
-        <form onSubmit={(e) => e.preventDefault()} className="flex flex-col">
-          <div className="custom-scrollbar h-[450px] overflow-y-auto px-2 pb-3">
-            {/* Personal Information */}
-            <div>
-              <h5 className="mb-5 text-lg font-medium text-gray-800 dark:text-white/90 lg:mb-6">
-                Personal Information
-              </h5>
-
-              <div className="grid grid-cols-1 gap-x-6 gap-y-5 lg:grid-cols-2">
-                <div>
-                  <Label>First Name</Label>
-                  <input
-                    type="text"
-                    name="firstName"
-                    value={formData.firstName}
-                    onChange={handleInputChange}
-                    placeholder="Enter first name"
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                  />
-                </div>
-
-                <div>
-                  <Label>Last Name</Label>
-                  <input
-                    type="text"
-                    name="lastName"
-                    value={formData.lastName}
-                    onChange={handleInputChange}
-                    placeholder="Enter last name"
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                  />
-                </div>
-
-                <div>
-                  <Label>Email Address</Label>
-                  <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleInputChange}
-                    disabled
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 bg-gray-100 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400"
-                  />
-                </div>
-
-                <div>
-                  <Label>Phone Number</Label>
-                  <input
-                    type="text"
-                    name="phoneNumber"
-                    value={formData.phoneNumber}
-                    onChange={handleInputChange}
-                    placeholder="Enter phone number"
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Change Password */}
-            <div className="mt-8">
-              <h5 className="mb-5 text-lg font-medium text-gray-800 dark:text-white/90 lg:mb-6">
-                Change Password (Optional)
-              </h5>
-
-              <div className="grid grid-cols-1 gap-x-6 gap-y-5 lg:grid-cols-2">
-                <div>
-                  <Label>Current Password</Label>
-                  <input
-                    type="password"
-                    name="currentPassword"
-                    value={passwordData.currentPassword}
-                    onChange={handlePasswordChange}
-                    placeholder="••••••••"
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                  />
-                </div>
-
-                <div>
-                  <Label>New Password</Label>
-                  <input
-                    type="password"
-                    name="newPassword"
-                    value={passwordData.newPassword}
-                    onChange={handlePasswordChange}
-                    placeholder="••••••••"
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                  />
-                </div>
-
-                <div>
-                  <Label>Confirm New Password</Label>
-                  <input
-                    type="password"
-                    name="newPassword_confirmation"
-                    value={passwordData.newPassword_confirmation}
-                    onChange={handlePasswordChange}
-                    placeholder="••••••••"
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-3 px-2 mt-6 lg:justify-end">
-            <Button variant="outline" onClick={closeModal} disabled={updating}>
-              Cancel
-            </Button>
-
-            <Button onClick={handleSaveProfile} disabled={updating} className="!bg-[#1F6F43] hover:!bg-[#084d93]">
-              {updating ? "Saving..." : "Save Profile"}
-            </Button>
-
-            {(passwordData.currentPassword || passwordData.newPassword) && (
-              <Button
-                onClick={handleChangePassword}
-                disabled={
-                  updating ||
-                  passwordData.newPassword !== passwordData.newPassword_confirmation ||
-                  !passwordData.currentPassword ||
-                  !passwordData.newPassword
-                }
-                className="bg-green-600 hover:bg-green-700"
-              >
-                {updating ? "Changing..." : "Change Password"}
-              </Button>
-            )}
-          </div>
-        </form>
-      </>
-    )}
-  </div>
-</Modal>
+      </Modal>
     </div>
   );
 }

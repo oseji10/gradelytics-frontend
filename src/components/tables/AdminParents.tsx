@@ -59,11 +59,31 @@ interface Parent {
   studentCount?: number;
 }
 
+
+interface Child {
+  studentId: number;
+  admissionNumber: string;
+  schoolAssignedAdmissionNumber: string | null;
+  gender: string | null;
+  user: User;
+  classes: {
+    className: string;
+  }[];
+}
+
 /* ---------------- component ---------------- */
 
 export default function AdminParents() {
   const [parents, setParents] = useState<Parent[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [parentData, setParentData] = useState<{
+  childrenCount: number;
+  children: Child[];
+}>({
+  childrenCount: 0,
+  children: [],
+});
 
   // Add/Edit modal
   const [modalOpen, setModalOpen] = useState(false);
@@ -97,15 +117,15 @@ export default function AdminParents() {
         // If your backend already includes studentCount → great!
         // Otherwise you might need a separate call or different endpoint
         const parentsWithCount = await Promise.all(
-          (res.data || []).map(async (p: Parent) => {
-            try {
-              const countRes = await api.get(`/school/parents/${p.parentId}/students/count`);
-              return { ...p, studentCount: countRes.data.count || 0 };
-            } catch {
-              return { ...p, studentCount: 0 };
-            }
-          })
-        );
+  (res.data || []).map(async (p: Parent) => {
+    try {
+      const countRes = await api.get(`/parents/${p.parentId}/children`);
+      return { ...p, studentCount: countRes.data.childrenCount || 0 };
+    } catch {
+      return { ...p, studentCount: 0 };
+    }
+  })
+);
 
         const sorted = parentsWithCount.slice().sort(
           (a, b) =>
@@ -145,10 +165,33 @@ export default function AdminParents() {
     setModalOpen(true);
   };
 
-  const openView = (parent: Parent) => {
-    setSelectedParent(parent);
-    setViewOpen(true);
-  };
+const [childrenLoading, setChildrenLoading] = useState(false);
+
+const openView = async (parent: Parent) => {
+  setSelectedParent(parent);
+  setViewOpen(true);
+  setChildrenLoading(true);
+  setParentData({ childrenCount: 0, children: [] }); // reset first
+
+  try {
+    console.log(`Fetching children for parent ${parent.parentId}`);
+    const res = await api.get(`/parents/${parent.parentId}/children`);
+    console.log("Children API response:", res.data); // ← very important!
+
+    // If your backend sometimes wraps it differently, you can try:
+    // const data = res.data.data || res.data;
+
+    setParentData(res.data);
+  } catch (err: any) {
+    console.error("Failed to load children:", err);
+    toast.error("Could not load children's details", {
+      description: err?.response?.data?.message || "Network error",
+    });
+    setParentData({ childrenCount: 0, children: [] });
+  } finally {
+    setChildrenLoading(false);
+  }
+};
 
   const handleSaveParent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -281,7 +324,7 @@ export default function AdminParents() {
                 <div className="flex flex-col gap-3">
                   <div>
                     <p className="font-semibold text-lg text-foreground">{fullName(p)}</p>
-                    <p className="text-sm text-muted-foreground">{p.user.email}</p>
+                    <p className="text-sm text-muted-foreground">{p?.user?.email}</p>
                     <p className="text-sm text-muted-foreground">
                       Students: {p.studentCount ?? "?"}
                     </p>
@@ -510,57 +553,138 @@ export default function AdminParents() {
         </Dialog>
 
         {/* View Modal */}
-        <Dialog open={viewOpen} onOpenChange={setViewOpen}>
-          <DialogContent className="sm:max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Parent Details</DialogTitle>
-            </DialogHeader>
+        {/* View Modal */}
+<Dialog open={viewOpen} onOpenChange={setViewOpen}>
+  <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+    <DialogHeader className="px-6 pt-6 pb-4 border-b">
+      <DialogTitle>Parent Details</DialogTitle>
+    </DialogHeader>
 
-            {selectedParent && (
-              <div className="py-6 space-y-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <h4 className="text-sm text-muted-foreground mb-1">Full Name</h4>
-                    <p className="text-xl font-semibold">{fullName(selectedParent)}</p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm text-muted-foreground mb-1">Email</h4>
-                    <p className="text-lg">{selectedParent.user.email}</p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm text-muted-foreground mb-1">Phone</h4>
-                    <p className="text-lg">{selectedParent.user.phoneNumber}</p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm text-muted-foreground mb-1">Alternate Phone</h4>
-                    <p className="text-lg">{selectedParent.user.alternatePhoneNumber || "—"}</p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm text-muted-foreground mb-1">Number of Students</h4>
-                    <p className="text-2xl font-bold text-[#1F6F43]">
-                      {selectedParent.studentCount ?? "—"}
-                    </p>
-                  </div>
+    <div className="flex-1 overflow-y-auto px-6 py-6">
+      {selectedParent && (
+        <div className="space-y-8">
+          {/* Parent basic info */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <h4 className="text-sm text-muted-foreground mb-1">Full Name</h4>
+              <p className="text-xl font-semibold">{fullName(selectedParent)}</p>
+            </div>
+            <div>
+              <h4 className="text-sm text-muted-foreground mb-1">Email</h4>
+              <p className="text-lg">{selectedParent.user.email}</p>
+            </div>
+            <div>
+              <h4 className="text-sm text-muted-foreground mb-1">Phone</h4>
+              <p className="text-lg">{selectedParent.user.phoneNumber}</p>
+            </div>
+            <div>
+              <h4 className="text-sm text-muted-foreground mb-1">Alternate Phone</h4>
+              <p className="text-lg">{selectedParent.user.alternatePhoneNumber || "—"}</p>
+            </div>
+            <div>
+              <h4 className="text-sm text-muted-foreground mb-1">Number of Students</h4>
+              <p className="text-2xl font-bold text-[#1F6F43]">
+                {parentData.childrenCount}
+                <span className="text-base font-normal ml-1.5">
+                  {parentData.childrenCount === 1 ? "child" : "children"}
+                </span>
+              </p>
+            </div>
+          </div>
+
+          {/* Linked Students - this section can grow long */}
+          <div className="pt-6 border-t">
+            <h4 className="text-lg font-medium mb-4">Linked Students</h4>
+
+            {childrenLoading ? (
+              <div className="py-10 text-center">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-primary border-t-transparent"></div>
+                <p className="mt-3 text-muted-foreground">Loading children...</p>
+              </div>
+            ) : parentData.childrenCount === 0 && parentData.children.length === 0 ? (
+              <div className="py-8 text-center text-muted-foreground italic bg-muted/30 rounded-lg">
+                No children linked to this parent.
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="text-lg font-semibold text-[#1F6F43] mb-2">
+                  {parentData.childrenCount} 
+                  {parentData.childrenCount === 1 ? " child" : " children"} linked
                 </div>
 
-                {/* Future expansion area */}
-                <div className="pt-6 border-t">
-                  <h4 className="text-lg font-medium mb-3">Linked Students</h4>
-                  <p className="text-sm text-muted-foreground italic">
-                    Student list / details coming soon...
-                  </p>
-                  {/* You can later add: table, cards, or clickable names */}
-                </div>
+                {parentData.children.map((child, index) => (
+                  <div
+                    key={child.studentId}
+                    className="rounded-lg border bg-white dark:bg-gray-800 p-5 shadow-sm"
+                  >
+                    <div className="flex items-center justify-between mb-4 pb-3 border-b">
+                      <h5 className="font-semibold text-base">
+                        {child.user.firstName} {child.user.lastName}
+                        {child.user.otherNames && (
+                          <span className="text-muted-foreground ml-2 text-sm">
+                            ({child.user.otherNames})
+                          </span>
+                        )}
+                      </h5>
+                      <span className={`text-xs font-medium px-3 py-1 rounded-full ${
+                        child.gender === 'male' ? 'bg-blue-100 text-blue-800' : 
+                        child.gender === 'female' ? 'bg-pink-100 text-pink-800' : 
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {child.gender ? child.gender.charAt(0).toUpperCase() + child.gender.slice(1) : "—"}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                      <div>
+                        <span className="text-muted-foreground block text-xs mb-0.5">Admission No</span>
+                        <p className="font-medium">
+                          {child.schoolAssignedAdmissionNumber || child.admissionNumber || "—"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <span className="text-muted-foreground block text-xs mb-0.5">Class</span>
+                        <p className="font-medium">
+                          {child.classes?.[0]?.className || "Not assigned"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <span className="text-muted-foreground block text-xs mb-0.5">Date of Birth</span>
+                        <p className="font-medium">
+                          {child.dateOfBirth 
+                            ? new Date(child.dateOfBirth).toLocaleDateString('en-GB') 
+                            : "—"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <span className="text-muted-foreground block text-xs mb-0.5">Phone</span>
+                        <p>{child.user.phoneNumber || "—"}</p>
+                      </div>
+
+                      <div className="sm:col-span-2 md:col-span-1">
+                        <span className="text-muted-foreground block text-xs mb-0.5">Email</span>
+                        <p className="break-all">{child.user.email || "—"}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+    </div>
 
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setViewOpen(false)}>
-                Close
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+    <DialogFooter className="px-6 py-4 border-t">
+      <Button variant="outline" onClick={() => setViewOpen(false)}>
+        Close
+      </Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
       </div>
     </div>
   );

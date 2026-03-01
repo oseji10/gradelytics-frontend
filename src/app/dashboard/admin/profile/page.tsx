@@ -5,7 +5,7 @@ import { Metadata } from "next";
 import React from "react";
 
 export const metadata: Metadata = {
-  title: "gradelytics Dashboard",
+  title: "Gradelytics Dashboard",
   description: "Overview of your invoicing platform: invoices, revenue, tenants, and more.",
 };
 
@@ -18,7 +18,7 @@ export default function Profile() {
           Profile
         </h3>
         <div className="space-y-6">
-          <UserMetaCard />
+          {/* <UserMetaCard /> */}
           <UserInfoCard />
           {/* <UserAddressCard /> */}
         </div>

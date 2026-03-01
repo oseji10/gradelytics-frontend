@@ -212,6 +212,9 @@ export default function ContinuousAssessment() {
               score: existing?.score ? Number(existing.score) : 0,
             };
           });
+          toast.success("Data loaded", {
+            description: `Existing scores for this subject loaded`,
+          });
         } else {
           entries = assessmentTypes.map((at) => ({
             assessmentId: at.assessmentId,
@@ -279,13 +282,17 @@ const handleScoreChange = (
 
     // Trigger debounced save with fresh record
     if (saveTimeouts.current[studentId]) {
-      clearTimeout(saveTimeouts.current[studentId]);
-    }
+  clearTimeout(saveTimeouts.current[studentId]);
+}
 
-    saveTimeouts.current[studentId] = setTimeout(() => {
-      saveSingleStudent(studentId, newRecord);
-    }, 800); // shorter debounce = snappier feel
+setSavingStudents(prev => new Set(prev).add(studentId));
+setGlobalSaving(true);
+const timeout = setTimeout(() => {
+  saveSingleStudent(studentId, newRecord);
+  delete saveTimeouts.current[studentId];
+}, 800);
 
+saveTimeouts.current[studentId] = timeout;
     return {
       ...prev,
       [studentId]: newRecord,
@@ -322,15 +329,18 @@ const saveSingleStudent = async (studentId: number, freshRecord?: ScoreRecord) =
   } catch (err: any) {
     toast.error(`Failed to save for student: ${err?.response?.data?.message || 'Error'}`);
   } finally {
-    setSavingStudents((prev) => {
-      const next = new Set(prev);
-      next.delete(studentId);
-      return next;
-    });
-    setTimeout(() => {
-      if (savingStudents.size === 0) setGlobalSaving(false);
-    }, 300);
-  }
+  setSavingStudents((prev) => {
+    const next = new Set(prev);
+    next.delete(studentId);
+
+    // ✅ Correct place to update globalSaving
+    if (next.size === 0) {
+      setGlobalSaving(false);
+    }
+
+    return next;
+  });
+}
 };
   const calculateTotal = (record: ScoreRecord) => {
     return record.entries.reduce((sum, e) => sum + (e.score || 0), 0);

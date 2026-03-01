@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   Card,
   CardContent,
@@ -9,7 +9,6 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -26,7 +25,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/use-toast";
@@ -39,41 +38,6 @@ interface SchoolClass {
   className: string;
 }
 
-// Raw enrollment shape (from /classes/school/:classId/students)
-interface RawClassEnrollment {
-  id: number;
-  studentId: number;
-  classId: number;
-  schoolId: number;
-  created_at: string | null;
-  updated_at: string | null;
-  deleted_at: string | null;
-  student: {
-    studentId: number;
-    schoolId: number;
-    userId: number;
-    admissionNumber: string | null;
-    schoolAssignedAdmissionNumber: string | null;
-    bloodGroup: string;
-    gender: string;
-    dateOfBirth: string;
-    parentId: number | null;
-    created_at: string;
-    updated_at: string;
-    deleted_at: string | null;
-    user: {
-      id: number;
-      firstName: string;
-      lastName: string;
-      otherNames: string | null;
-      email: string | null;
-      phoneNumber: string | null;
-      alternatePhoneNumber: string | null;
-    };
-  };
-}
-
-// Flattened student for UI
 interface Student {
   studentId: number;
   firstName: string;
@@ -81,31 +45,10 @@ interface Student {
   otherNames?: string | null;
 }
 
-// New attendance response shape
-interface AttendanceResponse {
-  editable: boolean;
-  attendance: {
-    attendanceId: number;
-    classId: number;
-    studentId: number;
-    teacherId: number;
-    schoolId: number;
-    attendanceDate: string;
-    termId: number;
-    academicYearId: number;
-    attendanceStatus: number;
-    status: "present" | "absent" | "late";
-    notes: string | null;
-    created_at: string;
-    updated_at: string;
-    deleted_at: string | null;
-  }[];
-}
-
 interface AttendanceRecord {
   studentId: number;
   status: "present" | "absent" | "late";
-  notes?: string;
+  notes: string;
 }
 
 export default function MarkAttendance() {
@@ -115,9 +58,12 @@ export default function MarkAttendance() {
   const [students, setStudents] = useState<Student[]>([]);
   const [attendance, setAttendance] = useState<Record<number, AttendanceRecord>>({});
   const [isEditable, setIsEditable] = useState(true);
+
   const [loadingClasses, setLoadingClasses] = useState(true);
   const [loadingStudents, setLoadingStudents] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [savingStudents, setSavingStudents] = useState<Set<number>>(new Set());
+
+  const saveTimeouts = useRef<Record<number, NodeJS.Timeout>>({});
 
   useEffect(() => {
     fetchClasses();
@@ -127,6 +73,11 @@ export default function MarkAttendance() {
     if (selectedClassId && selectedDate) {
       fetchStudentsAndAttendance();
     }
+
+    return () => {
+      Object.values(saveTimeouts.current).forEach(clearTimeout);
+      saveTimeouts.current = {};
+    };
   }, [selectedClassId, selectedDate]);
 
   const fetchClasses = async () => {
@@ -134,9 +85,13 @@ export default function MarkAttendance() {
       setLoadingClasses(true);
       const res = await api.get("/classes/school");
       setClasses(res.data || []);
-    } catch (err) {
-      toast.error("Failed to load classes");
-      console.error("Classes fetch error:", err);
+      toast.success("Data loaded", {
+                description: `Found ${res.data?.length || 0} classes`,
+              });
+    } catch {
+      toast.error("Data loaded", {
+      description: `Failed to load classes`,
+      });
     } finally {
       setLoadingClasses(false);
     }
@@ -144,131 +99,195 @@ export default function MarkAttendance() {
 
   const fetchStudentsAndAttendance = async () => {
     if (!selectedClassId) return;
-
     setLoadingStudents(true);
+
     try {
-      // 1. Fetch enrolled students
       const enrollRes = await api.get(`/classes/school/${selectedClassId}/students`);
-      const rawEnrollments: RawClassEnrollment[] = enrollRes.data || [];
-
-      // Flatten students
-      const flattenedStudents: Student[] = rawEnrollments
-        .filter((enroll) => enroll.student?.user)
-        .map((enroll) => ({
-          studentId: enroll.student.studentId,
-          firstName: enroll.student.user.firstName,
-          lastName: enroll.student.user.lastName,
-          otherNames: enroll.student.user.otherNames || undefined,
+      const raw = enrollRes.data || [];
+      const flattened: Student[] = raw
+        .filter((e: any) => e.student?.user)
+        .map((e: any) => ({
+          studentId: e.student.studentId,
+          firstName: e.student.user.firstName,
+          lastName: e.student.user.lastName,
+          otherNames: e.student.user.otherNames || undefined,
         }));
+      setStudents(flattened);
 
-      setStudents(flattenedStudents);
-
-      // 2. Fetch attendance
       const dateStr = format(selectedDate!, "yyyy-MM-dd");
-      const attendanceRes = await api.get(
-        `/attendance?classId=${selectedClassId}&date=${dateStr}`
-      ) as { data: AttendanceResponse };
+      const attRes = await api.get(`/attendance?classId=${selectedClassId}&date=${dateStr}`);
 
-      const responseData = attendanceRes.data;
-
-      setIsEditable(responseData.editable ?? true);
-
-      // Build attendance state
-      const initialAttendance: Record<number, AttendanceRecord> = {};
-      flattenedStudents.forEach((student) => {
-        const existing = responseData.attendance?.find(
-          (r) => r.studentId === student.studentId
-        );
-        initialAttendance[student.studentId] = {
-          studentId: student.studentId,
-          status: (existing?.status as "present" | "absent" | "late") || "present",
-          notes: existing?.notes || "",
+      const data = attRes.data;
+      setIsEditable(data.editable ?? true);
+      toast.success("Data loaded", {
+      description: `Attendance records for ${flattened.length} students loaded`,
+      });
+      const initial: Record<number, AttendanceRecord> = {};
+      flattened.forEach((s) => {
+        const ex = data.attendance?.find((r: any) => r.studentId === s.studentId);
+        initial[s.studentId] = {
+          studentId: s.studentId,
+          status: (ex?.status as "present" | "absent" | "late") ?? "present",
+          notes: ex?.notes ?? "",
         };
       });
-
-      setAttendance(initialAttendance);
+      setAttendance(initial);
     } catch (err: any) {
-      toast.error("Failed to load students or attendance");
-      console.error("Fetch error:", err);
+      toast.error("Error", {
+      description: `Failed to load students or attendance records for the selected class and date`,
+      });
     } finally {
       setLoadingStudents(false);
     }
   };
 
-  const handleBulkMark = (status: "present" | "absent" | "late") => {
-    if (!isEditable) return;
-    setAttendance((prev) => {
-      const updated = { ...prev };
-      students.forEach((s) => {
-        updated[s.studentId] = {
-          ...updated[s.studentId],
-          status,
-        };
-      });
-      return updated;
+  const markSaving = (studentId: number, saving: boolean) => {
+    setSavingStudents((prev) => {
+      const next = new Set(prev);
+      if (saving) next.add(studentId);
+      else next.delete(studentId);
+      return next;
     });
   };
 
-  const handleStatusChange = (studentId: number, status: "present" | "absent" | "late") => {
+  const saveSingleStudent = async (
+  studentId: number,
+  record: AttendanceRecord
+) => {
+  if (!record) return;
+
+  markSaving(studentId, true);
+
+  try {
+    const dateStr = format(selectedDate!, "yyyy-MM-dd");
+
+    await api.post("/attendance/mark", {
+      classId: Number(selectedClassId),
+      date: dateStr,
+      records: [
+        {
+          studentId,
+          status: record.status,
+          notes: record.notes || null,
+        },
+      ],
+    });
+
+    toast.success("Attendance saved", {
+      description: `${
+        students.find((s) => s.studentId === studentId)?.firstName ??
+        "student"
+      } saved successfully`,
+    });
+  } catch (err) {
+    toast.error("Could not save student");
+    console.error(err);
+  } finally {
+    markSaving(studentId, false);
+  }
+};
+
+  const scheduleSave = (studentId: number, record: AttendanceRecord) => {
+  if (saveTimeouts.current[studentId]) {
+    clearTimeout(saveTimeouts.current[studentId]);
+  }
+
+  saveTimeouts.current[studentId] = setTimeout(() => {
+    saveSingleStudent(studentId, record);
+    delete saveTimeouts.current[studentId];
+  }, 800);
+};
+
+  const handleStatusChange = (
+  studentId: number,
+  newStatus: "present" | "absent" | "late"
+) => {
+  if (!isEditable) return;
+
+  const current = attendance[studentId];
+  if (!current || current.status === newStatus) return;
+
+  const updated = { ...current, status: newStatus };
+
+  // 1️⃣ update state first
+  setAttendance((prev) => ({
+    ...prev,
+    [studentId]: updated,
+  }));
+
+  // 2️⃣ schedule save using updated value
+  scheduleSave(studentId, updated);
+};
+
+ const handleNotesChange = (studentId: number, notes: string) => {
+  if (!isEditable) return;
+
+  const current = attendance[studentId];
+  if (!current || current.notes === notes) return;
+
+  const updated = { ...current, notes };
+
+  setAttendance((prev) => ({
+    ...prev,
+    [studentId]: updated,
+  }));
+
+  scheduleSave(studentId, updated);
+};
+
+  const handleBulkMark = (status: "present" | "absent" | "late") => {
     if (!isEditable) return;
-    setAttendance((prev) => ({
-      ...prev,
-      [studentId]: {
-        ...prev[studentId],
-        status,
-      },
-    }));
-  };
 
-  const handleNotesChange = (studentId: number, notes: string) => {
-    if (!isEditable) return;
-    setAttendance((prev) => ({
-      ...prev,
-      [studentId]: {
-        ...prev[studentId],
-        notes,
-      },
-    }));
-  };
+    let changed = false;
 
-  const handleSaveAttendance = async () => {
-    if (!selectedClassId || !selectedDate || students.length === 0) {
-      toast.error("Please select class and date");
-      return;
-    }
-
-    if (!isEditable) {
-      toast.info("This attendance is no longer editable");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const dateStr = format(selectedDate, "yyyy-MM-dd");
-      const records = Object.values(attendance).map((r) => ({
-        studentId: r.studentId,
-        status: r.status,
-        notes: r.notes || null,
-      }));
-
-      await api.post("/attendance/mark", {
-        classId: Number(selectedClassId),
-        date: dateStr,
-        records,
+    setAttendance((prev) => {
+      const next = { ...prev };
+      students.forEach((s) => {
+        const current = next[s.studentId];
+        if (current && current.status !== status) {
+          next[s.studentId] = { ...current, status };
+          changed = true;
+          scheduleSave(s.studentId);
+        }
       });
+      return next;
+    });
 
-      toast.success(`Attendance saved for ${format(selectedDate, "PPP")}`);
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to save attendance");
-      console.error("Save error:", err);
-    } finally {
-      setSaving(false);
+    if (changed) {
+      toast.success(`All students marked as ${status}`);
     }
   };
+
+  const handleSaveAllNow = async () => {
+    if (!selectedClassId || !selectedDate) {
+      toast.error("Please select class and date first");
+      return;
+    }
+
+    Object.keys(saveTimeouts.current).forEach((key) => {
+      clearTimeout(saveTimeouts.current[Number(key)]);
+      delete saveTimeouts.current[Number(key)];
+    });
+
+    const promises = students.map((s) => saveSingleStudent(s.studentId));
+    await Promise.allSettled(promises);
+
+    toast.success("All attendance records saved");
+  };
+
+  const isSaving = savingStudents.size > 0;
 
   return (
     <div className="relative min-h-screen bg-gray-50 dark:bg-gray-950 pb-12">
       <div className="space-y-8 px-4 py-8 md:px-8 lg:px-12">
+
+        {isSaving && (
+          <div className="fixed top-4 right-4 z-50 bg-white dark:bg-gray-800 shadow-lg rounded-lg px-4 py-2 flex items-center gap-2 border border-gray-200 dark:border-gray-700">
+            <Loader2 className="h-4 w-4 animate-spin text-[#1F6F43]" />
+            <span className="text-sm font-medium">Saving changes…</span>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -289,17 +308,14 @@ export default function MarkAttendance() {
         <Card>
           <CardHeader className="pb-4">
             <CardTitle>Select Class & Date</CardTitle>
-            <CardDescription>
-              Choose the class and date to mark attendance
-            </CardDescription>
+            <CardDescription>Choose the class and date to mark attendance</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Class */}
               <div>
                 <Label>Class</Label>
                 {loadingClasses ? (
-                  <p className="text-sm text-muted-foreground py-2">Loading classes...</p>
+                  <p className="text-sm text-muted-foreground py-2">Loading classes…</p>
                 ) : (
                   <Select value={selectedClassId} onValueChange={setSelectedClassId}>
                     <SelectTrigger>
@@ -316,7 +332,6 @@ export default function MarkAttendance() {
                 )}
               </div>
 
-              {/* Date */}
               <div>
                 <Label>Date</Label>
                 <Popover>
@@ -344,19 +359,18 @@ export default function MarkAttendance() {
                 </Popover>
               </div>
 
-              {/* Bulk Actions */}
               <div className="flex items-end gap-3">
                 <Button
                   variant="outline"
                   onClick={() => handleBulkMark("present")}
-                  disabled={!isEditable || !selectedClassId || loadingStudents}
+                  disabled={!isEditable || !selectedClassId || loadingStudents || isSaving}
                 >
                   Mark All Present
                 </Button>
                 <Button
                   variant="outline"
                   onClick={() => handleBulkMark("absent")}
-                  disabled={!isEditable || !selectedClassId || loadingStudents}
+                  disabled={!isEditable || !selectedClassId || loadingStudents || isSaving}
                 >
                   Mark All Absent
                 </Button>
@@ -365,34 +379,29 @@ export default function MarkAttendance() {
           </CardContent>
         </Card>
 
-        {/* Students List */}
+        {/* Attendance Content */}
         <Card>
           <CardHeader className="pb-4">
             <CardTitle>
               {selectedClassId
-                ? `Students in Class ${classes.find((c) => c.classId === Number(selectedClassId))?.className || ""}`
-                : "Select a class to begin"}
+                ? `Students in ${classes.find((c) => c.classId === Number(selectedClassId))?.className || ""}`
+                : "Select class and date to begin"}
             </CardTitle>
             <CardDescription>
               {selectedDate ? format(selectedDate, "EEEE, MMMM d, yyyy") : "—"}
-              {!isEditable && (
-                <span className="ml-2 text-sm text-amber-600 font-medium">
-                  (This attendance is no longer editable)
-                </span>
-              )}
+              {!isEditable && <span className="ml-2 text-amber-600 font-medium">(Not editable)</span>}
             </CardDescription>
           </CardHeader>
+
           <CardContent>
             {loadingStudents ? (
-              <div className="py-12 text-center text-muted-foreground">Loading students...</div>
-            ) : !selectedClassId ? (
+              <div className="py-12 text-center text-muted-foreground">Loading students…</div>
+            ) : !selectedClassId || !selectedDate ? (
               <div className="py-12 text-center text-muted-foreground">
-                Please select a class and date above
+                Please select class and date above
               </div>
             ) : students.length === 0 ? (
-              <div className="py-12 text-center text-muted-foreground">
-                No students found in this class
-              </div>
+              <div className="py-12 text-center text-muted-foreground">No students found</div>
             ) : (
               <div className="rounded-md border">
                 {/* Desktop Table */}
@@ -403,26 +412,21 @@ export default function MarkAttendance() {
                         <th className="px-6 py-3 text-left text-sm font-medium text-muted-foreground w-5/12">
                           Student Name
                         </th>
-                        <th className="px-6 py-3 text-center text-sm font-medium text-muted-foreground w-2/12">
-                          Present
-                        </th>
-                        <th className="px-6 py-3 text-center text-sm font-medium text-muted-foreground w-2/12">
-                          Absent
-                        </th>
-                        <th className="px-6 py-3 text-center text-sm font-medium text-muted-foreground w-2/12">
-                          Late
-                        </th>
-                        <th className="px-6 py-3 text-left text-sm font-medium text-muted-foreground w-3/12">
-                          Notes
-                        </th>
+                        <th className="px-6 py-3 text-center w-2/12">Present</th>
+                        <th className="px-6 py-3 text-center w-2/12">Absent</th>
+                        <th className="px-6 py-3 text-center w-2/12">Late</th>
+                        <th className="px-6 py-3 text-left w-3/12">Notes</th>
+                        <th className="px-6 py-3 text-center w-1/12">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {students.map((student) => {
-                        const record = attendance[student.studentId] || {
+                        const record = attendance[student.studentId] ?? {
                           status: "present",
                           notes: "",
                         };
+                        const isSavingThis = savingStudents.has(student.studentId);
+
                         return (
                           <tr key={student.studentId} className="hover:bg-muted/30">
                             <td className="px-6 py-4 font-medium">
@@ -432,43 +436,41 @@ export default function MarkAttendance() {
                             <td className="px-6 py-4 text-center">
                               <Checkbox
                                 checked={record.status === "present"}
-                                onCheckedChange={() =>
-                                  handleStatusChange(student.studentId, "present")
-                                }
-                                disabled={!isEditable}
-                                className="mx-auto"
+                                onCheckedChange={() => handleStatusChange(student.studentId, "present")}
+                                disabled={!isEditable || isSavingThis}
                               />
                             </td>
                             <td className="px-6 py-4 text-center">
                               <Checkbox
                                 checked={record.status === "absent"}
-                                onCheckedChange={() =>
-                                  handleStatusChange(student.studentId, "absent")
-                                }
-                                disabled={!isEditable}
-                                className="mx-auto"
+                                onCheckedChange={() => handleStatusChange(student.studentId, "absent")}
+                                disabled={!isEditable || isSavingThis}
                               />
                             </td>
                             <td className="px-6 py-4 text-center">
                               <Checkbox
                                 checked={record.status === "late"}
-                                onCheckedChange={() =>
-                                  handleStatusChange(student.studentId, "late")
-                                }
-                                disabled={!isEditable}
-                                className="mx-auto"
+                                onCheckedChange={() => handleStatusChange(student.studentId, "late")}
+                                disabled={!isEditable || isSavingThis}
                               />
                             </td>
                             <td className="px-6 py-4">
                               <Textarea
-                                value={record.notes || ""}
-                                onChange={(e) =>
-                                  handleNotesChange(student.studentId, e.target.value)
-                                }
-                                disabled={!isEditable}
-                                placeholder="Optional notes..."
+                                value={record.notes}
+                                onChange={(e) => handleNotesChange(student.studentId, e.target.value)}
+                                disabled={!isEditable || isSavingThis}
+                                placeholder="Optional notes…"
                                 className="min-h-[60px] resize-none"
                               />
+                            </td>
+                            <td className="px-6 py-4 text-center text-xs">
+                              {isSavingThis ? (
+                                <span className="text-blue-600 flex items-center justify-center gap-1">
+                                  <Loader2 className="h-3 w-3 animate-spin" /> saving
+                                </span>
+                              ) : (
+                                <span className="text-green-600">saved</span>
+                              )}
                             </td>
                           </tr>
                         );
@@ -478,68 +480,80 @@ export default function MarkAttendance() {
                 </div>
 
                 {/* Mobile Cards */}
-                <div className="md:hidden space-y-4">
+                <div className="md:hidden space-y-4 p-1">
                   {students.map((student) => {
-                    const record = attendance[student.studentId] || {
+                    const record = attendance[student.studentId] ?? {
                       status: "present",
                       notes: "",
                     };
+                    const isSavingThis = savingStudents.has(student.studentId);
+
                     return (
-                      <Card key={student.studentId} className="overflow-hidden">
+                      <Card key={student.studentId} className="overflow-hidden border">
                         <CardContent className="p-5">
-                          <div className="font-medium mb-3">
+                          <div className="font-medium text-base mb-4">
                             {student.firstName} {student.lastName}
-                            {student.otherNames && ` (${student.otherNames})`}
+                            {student.otherNames && <span className="text-sm text-muted-foreground"> ({student.otherNames})</span>}
                           </div>
 
-                          <div className="grid grid-cols-3 gap-3 mb-4">
+                          <div className="grid grid-cols-3 gap-3 mb-5">
                             <Button
                               variant={record.status === "present" ? "default" : "outline"}
                               size="sm"
                               onClick={() => handleStatusChange(student.studentId, "present")}
-                              disabled={!isEditable}
+                              disabled={!isEditable || isSavingThis}
                               className={cn(
-                                record.status === "present" &&
-                                  "bg-green-600 hover:bg-green-700 text-white"
+                                record.status === "present" && "bg-green-600 hover:bg-green-700 text-white"
                               )}
                             >
                               Present
                             </Button>
+
                             <Button
                               variant={record.status === "absent" ? "default" : "outline"}
                               size="sm"
                               onClick={() => handleStatusChange(student.studentId, "absent")}
-                              disabled={!isEditable}
+                              disabled={!isEditable || isSavingThis}
                               className={cn(
-                                record.status === "absent" &&
-                                  "bg-red-600 hover:bg-red-700 text-white"
+                                record.status === "absent" && "bg-red-600 hover:bg-red-700 text-white"
                               )}
                             >
                               Absent
                             </Button>
+
                             <Button
                               variant={record.status === "late" ? "default" : "outline"}
                               size="sm"
                               onClick={() => handleStatusChange(student.studentId, "late")}
-                              disabled={!isEditable}
+                              disabled={!isEditable || isSavingThis}
                               className={cn(
-                                record.status === "late" &&
-                                  "bg-amber-600 hover:bg-amber-700 text-white"
+                                record.status === "late" && "bg-amber-600 hover:bg-amber-700 text-white"
                               )}
                             >
                               Late
                             </Button>
                           </div>
 
-                          <Textarea
-                            value={record.notes || ""}
-                            onChange={(e) =>
-                              handleNotesChange(student.studentId, e.target.value)
-                            }
-                            disabled={!isEditable}
-                            placeholder="Add notes (optional)..."
-                            className="min-h-[80px]"
-                          />
+                          <div className="mb-4">
+                            <Label className="text-sm mb-1 block">Notes</Label>
+                            <Textarea
+                              value={record.notes}
+                              onChange={(e) => handleNotesChange(student.studentId, e.target.value)}
+                              disabled={!isEditable || isSavingThis}
+                              placeholder="Optional notes..."
+                              className="min-h-[80px] resize-none"
+                            />
+                          </div>
+
+                          <div className="text-right text-xs mt-2">
+                            {isSavingThis ? (
+                              <span className="text-blue-600 flex items-center justify-end gap-1">
+                                <Loader2 className="h-3 w-3 animate-spin" /> saving…
+                              </span>
+                            ) : (
+                              <span className="text-green-600">saved</span>
+                            )}
+                          </div>
                         </CardContent>
                       </Card>
                     );
@@ -548,16 +562,15 @@ export default function MarkAttendance() {
               </div>
             )}
 
-            {/* Save Button */}
             {selectedClassId && students.length > 0 && (
               <div className="mt-8 flex justify-end">
                 <Button
-                  onClick={handleSaveAttendance}
-                  disabled={saving || loadingStudents || !isEditable}
+                  onClick={handleSaveAllNow}
+                  disabled={isSaving || loadingStudents || !isEditable}
                   className="bg-[#1F6F43] hover:bg-[#1F6F43]/90 px-8"
                   size="lg"
                 >
-                  {saving ? "Saving..." : isEditable ? "Save Attendance" : "Not Editable"}
+                  {isSaving ? "Saving…" : "Save All Now"}
                 </Button>
               </div>
             )}

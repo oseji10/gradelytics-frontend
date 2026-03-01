@@ -32,7 +32,7 @@ interface SchoolClass {
 interface PsychomotorDomain {
   domainId: number;
   domainName: string;
-  maxScore: string;      // comes as string "5.00"
+  maxScore: string;
   weight: string;
   schoolId: number;
   created_at: string;
@@ -41,7 +41,7 @@ interface PsychomotorDomain {
 
 interface DomainEntry {
   domainId: number;
-  rating: string;
+  rating: string;   // "1", "2", ..., "5", or ""
 }
 
 interface StudentRecord {
@@ -118,7 +118,7 @@ export default function PsychomotorDomainEntry() {
 
     setLoadingStudents(true);
     try {
-      // Students
+      // 1. Students
       const studentsRes = await api.get(`/classes/school/${selectedClassId}/students`);
       const rawStudents = studentsRes.data || [];
       const flattened = rawStudents
@@ -131,33 +131,31 @@ export default function PsychomotorDomainEntry() {
         }));
       setStudents(flattened);
 
-      // Records
-      const recordsRes = await api.get(`/psychomotor/psychomotor/records?classId=${selectedClassId}`);
+      // 2. Psychomotor domain records
+      const recordsRes = await api.get(`psychomotor/psychomotor/records?classId=${selectedClassId}`);
       const response = recordsRes.data;
       setIsEditable(response?.editable ?? true);
 
+      // The response is a flat array of score objects
+      const allScores = Array.isArray(response) ? response : [];
+
+      // Build records map
       const initialRecords: Record<number, StudentRecord> = {};
-      flattened.forEach((student: Student) => {
-        const studentData = response?.students?.find(
+
+      flattened.forEach((student) => {
+        const studentScores = allScores.filter(
           (s: any) => s.studentId === student.studentId
         );
 
-        let entries: DomainEntry[] = domains.map((d) => ({
-          domainId: d.domainId,
-          rating: "",
-        }));
-
-        if (studentData?.domains && Array.isArray(studentData.domains)) {
-          entries = domains.map((d) => {
-            const existing = studentData.domains.find(
-              (r: any) => r.domainId === d.domainId
-            );
-            return {
-              domainId: d.domainId,
-              rating: existing?.rating || "",
-            };
-          });
-        }
+        const entries: DomainEntry[] = domains.map((d) => {
+          const existing = studentScores.find(
+            (score: any) => score.domainId === d.domainId
+          );
+          return {
+            domainId: d.domainId,
+            rating: existing?.score ? String(parseFloat(existing.score)) : "",
+          };
+        });
 
         initialRecords[student.studentId] = {
           studentId: student.studentId,
@@ -168,7 +166,7 @@ export default function PsychomotorDomainEntry() {
       setRecords(initialRecords);
     } catch (err: any) {
       console.error("Fetch error:", err);
-      toast.error("Failed to load students or psychomotor records");
+      toast.error("Failed to load students or psychomotor domain records");
     } finally {
       setLoadingStudents(false);
     }
@@ -189,7 +187,7 @@ export default function PsychomotorDomainEntry() {
 
       const newRecord = { ...record, entries: updatedEntries };
 
-      // Debounce save per student
+      // Debounce save
       if (saveTimeouts.current[studentId]) {
         clearTimeout(saveTimeouts.current[studentId]);
       }
@@ -201,12 +199,10 @@ export default function PsychomotorDomainEntry() {
     });
   };
 
-  // Save all ratings for one student → grouped by domain
   const saveStudentRatings = async (studentId: number, record?: StudentRecord) => {
     const studentRecord = record || records[studentId];
     if (!studentRecord) return;
 
-    // Group ratings by domain
     const ratingsByDomain: Record<number, { studentId: number; rating: string }[]> = {};
 
     studentRecord.entries.forEach((entry) => {
@@ -221,7 +217,6 @@ export default function PsychomotorDomainEntry() {
       }
     });
 
-    // Send one request per domain that has ratings
     const savePromises = Object.entries(ratingsByDomain).map(([domainIdStr, ratings]) => {
       const domainId = Number(domainIdStr);
       setSavingDomains((prev) => new Set([...prev, domainId]));
@@ -230,9 +225,6 @@ export default function PsychomotorDomainEntry() {
         .post(`/psychomotor/psychomotor/${domainId}/scores`, {
           classId: Number(selectedClassId),
           ratings,
-        })
-        .then(() => {
-          // Optional: success feedback per domain if needed
         })
         .catch((err) => {
           toast.error(`Failed to save ${domains.find(d => d.domainId === domainId)?.domainName || "domain"}`);
@@ -250,7 +242,6 @@ export default function PsychomotorDomainEntry() {
     await Promise.all(savePromises);
   };
 
-  // Save ALL current ratings for all students
   const saveAll = async () => {
     if (students.length === 0) return;
 
@@ -258,16 +249,14 @@ export default function PsychomotorDomainEntry() {
     try {
       const promises = students.map((student) => {
         const record = records[student.studentId];
-        if (record) {
-          return saveStudentRatings(student.studentId, record);
-        }
+        if (record) return saveStudentRatings(student.studentId, record);
         return Promise.resolve();
       });
 
       await Promise.all(promises);
-      toast.success("All psychomotor ratings saved successfully");
-    } catch (err) {
-      toast.error("Some psychomotor ratings could not be saved");
+      toast.success("All ratings saved successfully");
+    } catch {
+      toast.error("Some ratings could not be saved");
     } finally {
       setGlobalSaving(false);
     }
@@ -286,7 +275,7 @@ export default function PsychomotorDomainEntry() {
         {isSaving && (
           <div className="fixed top-4 right-4 z-50 bg-white dark:bg-gray-900 shadow-xl rounded-lg px-5 py-3 flex items-center gap-3 border">
             <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
-            <span className="font-medium">Saving psychomotor ratings...</span>
+            <span className="font-medium">Saving ratings...</span>
           </div>
         )}
 
@@ -344,7 +333,7 @@ export default function PsychomotorDomainEntry() {
                 : "Select a class to begin"}
             </CardTitle>
             <CardDescription className="flex items-center gap-2">
-              Rate students on skill-based / psychomotor domains
+              Rate students on behavioral domains
               {!isEditable && selectedClassId && (
                 <span className="text-amber-600 font-medium text-sm ml-2">
                   (View only – period closed)
@@ -357,7 +346,7 @@ export default function PsychomotorDomainEntry() {
             {loadingStudents || loadingDomains ? (
               <div className="py-20 flex flex-col items-center justify-center text-muted-foreground">
                 <Loader2 className="h-8 w-8 animate-spin mb-3" />
-                <p>{loadingDomains ? "Loading psychomotor domains..." : "Loading students..."}</p>
+                <p>{loadingDomains ? "Loading domains..." : "Loading students..."}</p>
               </div>
             ) : !selectedClassId ? (
               <div className="py-20 text-center text-muted-foreground">
@@ -420,36 +409,34 @@ export default function PsychomotorDomainEntry() {
                             </td>
 
                             {domains.map((d) => {
-  const entry = record.entries.find((e) => e.domainId === d.domainId) || { rating: "" };
-  const max = getMaxRating(d.maxScore);
+                              const entry = record.entries.find((e) => e.domainId === d.domainId) || { rating: "" };
+                              const max = getMaxRating(d.maxScore);
 
-  return (
-    <td
-      key={d.domainId}              // ← Add this
-      className="w-[148px] min-w-[148px] max-w-[148px] px-2 py-4 align-middle"
-    >
-      <div className="flex justify-center">
-        <Select
-          value={entry.rating}
-          onValueChange={(val) => handleRatingChange(student.studentId, d.domainId, val)}
-          disabled={!isEditable}
-        >
-          <SelectTrigger className="w-[110px] h-9 text-center justify-center px-2">
-            <SelectValue placeholder="—" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="null">—</SelectItem>
-            {Array.from({ length: max }, (_, i) => i + 1).map((score) => (
-              <SelectItem key={score} value={score.toString()}>
-                {score}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-    </td>
-  );
-})}
+                              return (
+                                <td key={d.domainId} className="w-[148px] min-w-[148px] max-w-[148px] px-2 py-4 align-middle">
+                                  <div className="flex justify-center">
+                                    <Select
+                                      value={entry.rating}
+                                      onValueChange={(val) => handleRatingChange(student.studentId, d.domainId, val)}
+                                      disabled={!isEditable}
+                                    >
+                                      <SelectTrigger className="w-[110px] h-9 text-center justify-center px-2">
+                                        <SelectValue placeholder="—" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="null">—</SelectItem>
+                                        {Array.from({ length: max }, (_, i) => i + 1).map((score) => (
+                                          <SelectItem key={score} value={score.toString()}>
+                                            {score}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </td>
+                              );
+                            })}
+
                             <td className="px-3 py-4 text-center w-[110px] text-xs">
                               {savingDomains.size > 0 ? (
                                 <div className="flex items-center justify-center gap-1.5 text-blue-600">

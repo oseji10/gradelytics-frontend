@@ -138,7 +138,12 @@ const getMenuItems = (role: UserRole): MenuItem[] => {
         {
           icon: <Icon src={StudentsIcon} />,
           name: "Student Performance",
-          path: "/dashboard/admin/reports/student-performance",
+          path: "/dashboard/admin/student-performance",
+        },
+        {
+          icon: <Icon src={AttendanceIcon} />,
+          name: "Broadsheet Report",
+          path: "/dashboard/admin/broadsheet-report",
         },
         {
           icon: <Icon src={AttendanceIcon} />,

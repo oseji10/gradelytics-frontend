@@ -32,7 +32,7 @@ interface SchoolClass {
 interface AffectiveDomain {
   domainId: number;
   domainName: string;
-  maxScore: string;      // comes as string "5.00"
+  maxScore: string;
   weight: string;
   schoolId: number;
   created_at: string;
@@ -41,7 +41,7 @@ interface AffectiveDomain {
 
 interface DomainEntry {
   domainId: number;
-  rating: string;
+  rating: string;   // "1", "2", ..., "5", or ""
 }
 
 interface StudentRecord {
@@ -118,7 +118,7 @@ export default function AffectiveDomainEntry() {
 
     setLoadingStudents(true);
     try {
-      // Students
+      // 1. Students
       const studentsRes = await api.get(`/classes/school/${selectedClassId}/students`);
       const rawStudents = studentsRes.data || [];
       const flattened = rawStudents
@@ -131,33 +131,31 @@ export default function AffectiveDomainEntry() {
         }));
       setStudents(flattened);
 
-      // Records
+      // 2. Affective domain records
       const recordsRes = await api.get(`domains/affective/records?classId=${selectedClassId}`);
       const response = recordsRes.data;
       setIsEditable(response?.editable ?? true);
 
+      // The response is a flat array of score objects
+      const allScores = Array.isArray(response) ? response : [];
+
+      // Build records map
       const initialRecords: Record<number, StudentRecord> = {};
-      flattened.forEach((student: Student) => {
-        const studentData = response?.students?.find(
+
+      flattened.forEach((student) => {
+        const studentScores = allScores.filter(
           (s: any) => s.studentId === student.studentId
         );
 
-        let entries: DomainEntry[] = domains.map((d) => ({
-          domainId: d.domainId,
-          rating: "",
-        }));
-
-        if (studentData?.domains && Array.isArray(studentData.domains)) {
-          entries = domains.map((d) => {
-            const existing = studentData.domains.find(
-              (r: any) => r.domainId === d.domainId
-            );
-            return {
-              domainId: d.domainId,
-              rating: existing?.rating || "",
-            };
-          });
-        }
+        const entries: DomainEntry[] = domains.map((d) => {
+          const existing = studentScores.find(
+            (score: any) => score.domainId === d.domainId
+          );
+          return {
+            domainId: d.domainId,
+            rating: existing?.score ? String(parseFloat(existing.score)) : "",
+          };
+        });
 
         initialRecords[student.studentId] = {
           studentId: student.studentId,
@@ -168,7 +166,7 @@ export default function AffectiveDomainEntry() {
       setRecords(initialRecords);
     } catch (err: any) {
       console.error("Fetch error:", err);
-      toast.error("Failed to load students or records");
+      toast.error("Failed to load students or affective domain records");
     } finally {
       setLoadingStudents(false);
     }
@@ -189,7 +187,7 @@ export default function AffectiveDomainEntry() {
 
       const newRecord = { ...record, entries: updatedEntries };
 
-      // Debounce save per student
+      // Debounce save
       if (saveTimeouts.current[studentId]) {
         clearTimeout(saveTimeouts.current[studentId]);
       }
@@ -201,12 +199,10 @@ export default function AffectiveDomainEntry() {
     });
   };
 
-  // Save all ratings for one student → grouped by domain
   const saveStudentRatings = async (studentId: number, record?: StudentRecord) => {
     const studentRecord = record || records[studentId];
     if (!studentRecord) return;
 
-    // Group ratings by domain
     const ratingsByDomain: Record<number, { studentId: number; rating: string }[]> = {};
 
     studentRecord.entries.forEach((entry) => {
@@ -221,7 +217,6 @@ export default function AffectiveDomainEntry() {
       }
     });
 
-    // Send one request per domain that has ratings
     const savePromises = Object.entries(ratingsByDomain).map(([domainIdStr, ratings]) => {
       const domainId = Number(domainIdStr);
       setSavingDomains((prev) => new Set([...prev, domainId]));
@@ -230,9 +225,6 @@ export default function AffectiveDomainEntry() {
         .post(`/domains/affective/${domainId}/scores`, {
           classId: Number(selectedClassId),
           ratings,
-        })
-        .then(() => {
-          // Optional: success feedback per domain if needed
         })
         .catch((err) => {
           toast.error(`Failed to save ${domains.find(d => d.domainId === domainId)?.domainName || "domain"}`);
@@ -250,7 +242,6 @@ export default function AffectiveDomainEntry() {
     await Promise.all(savePromises);
   };
 
-  // Save ALL current ratings for all students
   const saveAll = async () => {
     if (students.length === 0) return;
 
@@ -258,15 +249,13 @@ export default function AffectiveDomainEntry() {
     try {
       const promises = students.map((student) => {
         const record = records[student.studentId];
-        if (record) {
-          return saveStudentRatings(student.studentId, record);
-        }
+        if (record) return saveStudentRatings(student.studentId, record);
         return Promise.resolve();
       });
 
       await Promise.all(promises);
       toast.success("All ratings saved successfully");
-    } catch (err) {
+    } catch {
       toast.error("Some ratings could not be saved");
     } finally {
       setGlobalSaving(false);
@@ -424,7 +413,7 @@ export default function AffectiveDomainEntry() {
                               const max = getMaxRating(d.maxScore);
 
                               return (
-                                <td className="w-[148px] min-w-[148px] max-w-[148px] px-2 py-4 align-middle">
+                                <td key={d.domainId} className="w-[148px] min-w-[148px] max-w-[148px] px-2 py-4 align-middle">
                                   <div className="flex justify-center">
                                     <Select
                                       value={entry.rating}

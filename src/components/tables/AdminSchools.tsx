@@ -12,79 +12,35 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Image from "next/image";
 import { ChevronLeftIcon } from "@/icons";
-import { toast, dismiss } from "@/components/ui/use-toast";
+import { toast } from "@/components/ui/use-toast";
 import Icon from "@/components/Icons";
 import api from "../../../lib/api";
 import { useModal } from "../../../context/ModalContext";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 
 interface School {
   schoolId: number;
   schoolName: string;
   schoolEmail: string;
   schoolPhone: string;
+  schoolAddress: string;       // ← added
   schoolLogo: string | null;
   authorizedSignature: string | null;
-  timezone: string;
-  countryCode: string | null;
-  gatewayPreference: number;
-  currency: {
-    currencyName: string;
-    currencyCode: string;
-    currencySymbol: string;
-    country: string;
-    currencyId: number;
-  };
-  payment_gateway: {
-    paymentGatewayName: string;
-    gatewayId: number;
-  };
   status: "active" | "inactive";
   created_at: string;
   updated_at: string;
   isDefault: number;
 }
 
-interface Currency {
-  currencyId: number;
-  currencyCode: string;
-  currencyName: string;
-  currencySymbol: string;
-}
-
-interface Gateway {
-  gatewayId: number;
-  paymentGatewayName: string;
-}
-
 const ITEMS_PER_PAGE = 10;
-
-const timezones = [
-  { value: "Africa/Lagos", label: "West Africa Time (Lagos, Nigeria) - WAT" },
-  { value: "Africa/Accra", label: "Greenwich Mean Time (Accra, Ghana) - GMT" },
-  { value: "Africa/Nairobi", label: "East Africa Time (Nairobi, Kenya) - EAT" },
-  { value: "Africa/Johannesburg", label: "South Africa Standard Time (Johannesburg) - SAST" },
-  { value: "Africa/Cairo", label: "Egypt Standard Time (Cairo) - EET" },
-  { value: "Europe/London", label: "Greenwich Mean Time / British Summer Time (London) - GMT/BST" },
-  { value: "Europe/Paris", label: "Central European Time (Paris, Berlin) - CET" },
-  { value: "America/New_York", label: "Eastern Time (New York) - ET" },
-  { value: "America/Chicago", label: "Central Time (Chicago) - CT" },
-  { value: "America/Los_Angeles", label: "Pacific Time (Los Angeles) - PT" },
-  { value: "Asia/Dubai", label: "Gulf Standard Time (Dubai) - GST" },
-  { value: "Asia/Singapore", label: "Singapore Time - SGT" },
-  { value: "Asia/Tokyo", label: "Japan Standard Time (Tokyo) - JST" },
-  { value: "Australia/Sydney", label: "Australian Eastern Time (Sydney) - AEST" },
-  { value: "Pacific/Auckland", label: "New Zealand Time (Auckland) - NZT" },
-  { value: "UTC", label: "Coordinated Universal Time - UTC" },
-];
 
 export default function AdminSchools() {
   const { openModal, closeModal } = useModal();
@@ -95,14 +51,9 @@ export default function AdminSchools() {
   const [editingSchool, setEditingSchool] = useState<School | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState<number | null>(null);
 
-  const [currencies, setCurrencies] = useState<Currency[]>([]);
-  const [gateways, setGateways] = useState<Gateway[]>([]);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [signaturePreview, setSignaturePreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [schoolStats, setSchoolStats] = useState<Record<number, { invoiceCount: number; receiptCount: number }>>({});
-  const [statsLoaded, setStatsLoaded] = useState(false);
 
   const logoInputRef = useRef<HTMLInputElement>(null);
   const signatureInputRef = useRef<HTMLInputElement>(null);
@@ -158,62 +109,6 @@ export default function AdminSchools() {
     fetchSchools();
   }, []);
 
-  // Fetch stats
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const [invoicesRes, receiptsRes] = await Promise.allSettled([
-          api.get("/invoices/admin"),
-          api.get("/receipts"),
-        ]);
-
-        const stats: Record<number, { invoiceCount: number; receiptCount: number }> = {};
-
-        const add = (id: number | null, field: "invoiceCount" | "receiptCount") => {
-          if (!id) return;
-          if (!stats[id]) stats[id] = { invoiceCount: 0, receiptCount: 0 };
-          stats[id][field]++;
-        };
-
-        if (invoicesRes.status === "fulfilled") {
-          invoicesRes.value.data?.forEach((inv: any) => add(getSchoolIdFromRecord(inv), "invoiceCount"));
-        }
-
-        if (receiptsRes.status === "fulfilled") {
-          receiptsRes.value.data?.forEach((rec: any) => add(getSchoolIdFromRecord(rec), "receiptCount"));
-        }
-
-        setSchoolStats(stats);
-        setStatsLoaded(true);
-      } catch (err) {
-        toast.error("Could not load invoice/receipt statistics");
-      }
-    };
-
-    fetchStats();
-  }, []);
-
-  // Fetch currencies & gateways when editing
-  useEffect(() => {
-    if (!editingSchool) return;
-
-    const fetchOptions = async () => {
-      try {
-        const [curr, gate] = await Promise.all([
-          fetch(`${process.env.NEXT_PUBLIC_API_URL}/currencies`),
-          fetch(`${process.env.NEXT_PUBLIC_API_URL}/payment-gateways`),
-        ]);
-
-        if (curr.ok) setCurrencies(await curr.json());
-        if (gate.ok) setGateways(await gate.json());
-      } catch (err) {
-        toast.error("Failed to load currency & gateway options");
-      }
-    };
-
-    fetchOptions();
-  }, [editingSchool]);
-
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("en-US", {
       year: "numeric",
@@ -222,28 +117,13 @@ export default function AdminSchools() {
     });
   };
 
-  const getSchoolIdFromRecord = (record: any) => {
-    const id = record?.schoolId ?? record?.school?.schoolId ?? record?.school_id;
-    return Number.isFinite(Number(id)) ? Number(id) : null;
-  };
-
   const handleViewSchool = (school: School) => {
     setSelectedSchool(school);
     openModal();
   };
 
   const handleEditSchool = (school: School) => {
-    const currencyObj = typeof school.currency === "object"
-      ? school.currency
-      : currencies.find(c => c.currencyId === Number(school.currency)) || {
-          currencyId: 1,
-          currencyName: "Naira",
-          currencyCode: "NGN",
-          currencySymbol: "₦",
-          country: "Nigeria",
-        };
-
-    setEditingSchool({ ...school, currency: currencyObj });
+    setEditingSchool({ ...school });
     setLogoPreview(school.schoolLogo ? `${process.env.NEXT_PUBLIC_FILE_URL}${school.schoolLogo}` : null);
     setSignaturePreview(school.authorizedSignature ? `${process.env.NEXT_PUBLIC_FILE_URL}${school.authorizedSignature}` : null);
     openModal();
@@ -362,7 +242,6 @@ export default function AdminSchools() {
           </div>
         </div>
 
-       
         {/* Mobile Cards */}
         <div className="block md:hidden space-y-4">
           {loading ? (
@@ -479,7 +358,7 @@ export default function AdminSchools() {
                   Contact
                 </th>
                 <th className="h-14 px-6 text-left font-semibold text-muted-foreground w-2/12">
-                  Created
+                  Address
                 </th>
                 <th className="h-14 px-6 text-left font-semibold text-muted-foreground w-1/12">
                   Status
@@ -537,7 +416,7 @@ export default function AdminSchools() {
                       </div>
                     </TableCell>
                     <TableCell className="px-6 py-4 text-muted-foreground">
-                      {formatDate(school.created_at)}
+                      {school.schoolAddress || "—"}
                     </TableCell>
                     <TableCell className="px-6 py-4">
                       <Badge variant={school.status === "active" ? "default" : "destructive"}>
@@ -632,7 +511,7 @@ export default function AdminSchools() {
                 </div>
               </div>
 
-              {/* Contact & Financial */}
+              {/* Main Information */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
                   <h4 className="text-lg font-semibold border-b pb-2">Contact Information</h4>
@@ -645,38 +524,10 @@ export default function AdminSchools() {
                       <p className="text-sm text-muted-foreground">Phone</p>
                       <p>{selectedSchool.schoolPhone || "Not provided"}</p>
                     </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <h4 className="text-lg font-semibold border-b pb-2">Financial Settings</h4>
-                  <div className="space-y-3">
                     <div>
-                      <p className="text-sm text-muted-foreground">Currency</p>
-                      <p>
-                        {selectedSchool.currency?.currencySymbol}{" "}
-                        {selectedSchool.currency?.currencyCode} -{" "}
-                        {selectedSchool.currency?.currencyName}
-                      </p>
+                      <p className="text-sm text-muted-foreground">Physical Address</p>
+                      <p className="whitespace-pre-line">{selectedSchool.schoolAddress || "Not provided"}</p>
                     </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Payment Gateway</p>
-                      <p>{selectedSchool.payment_gateway?.paymentGatewayName || "Not set"}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Other info */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <h4 className="text-lg font-semibold border-b pb-2">Regional Settings</h4>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Timezone</p>
-                    <p>
-                      {timezones.find((t) => t.value === selectedSchool.timezone)?.label ||
-                        selectedSchool.timezone}
-                    </p>
                   </div>
                 </div>
 
@@ -692,25 +543,6 @@ export default function AdminSchools() {
                       <p>{formatDate(selectedSchool.updated_at)}</p>
                     </div>
                   </div>
-                </div>
-              </div>
-
-              {/* Stats */}
-              <div className="pt-6 border-t">
-                <h4 className="text-lg font-semibold mb-4">Activity</h4>
-                <div className="grid grid-cols-2 gap-6">
-                  {/* <div>
-                    <p className="text-sm text-muted-foreground">Invoices</p>
-                    <p className="text-2xl font-semibold">
-                      {statsLoaded ? getSchoolCounts(selectedSchool.schoolId).invoiceCount : "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Receipts</p>
-                    <p className="text-2xl font-semibold">
-                      {statsLoaded ? getSchoolCounts(selectedSchool.schoolId).receiptCount : "—"}
-                    </p>
-                  </div> */}
                 </div>
               </div>
 
@@ -761,7 +593,7 @@ export default function AdminSchools() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    School Name
+                    School Name <span className="text-red-500">*</span>
                   </label>
                   <Input
                     name="schoolName"
@@ -769,9 +601,10 @@ export default function AdminSchools() {
                     required
                   />
                 </div>
+
                 <div>
                   <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Phone Number
+                    Phone Number <span className="text-red-500">*</span>
                   </label>
                   <Input
                     name="schoolPhone"
@@ -782,10 +615,10 @@ export default function AdminSchools() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Email Address
+                    Email Address <span className="text-red-500">*</span>
                   </label>
                   <Input
                     name="schoolEmail"
@@ -794,26 +627,17 @@ export default function AdminSchools() {
                     required
                   />
                 </div>
+
                 <div>
                   <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Currency
+                    School Address
                   </label>
-                  <select
-                    name="currency"
-                    defaultValue={
-                      typeof editingSchool.currency === "object"
-                        ? editingSchool.currency.currencyId
-                        : editingSchool.currency
-                    }
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    required
-                  >
-                    {currencies.map((cur) => (
-                      <option key={cur.currencyId} value={cur.currencyId}>
-                        {cur.currencyName} ({cur.currencyCode} - {cur.currencySymbol})
-                      </option>
-                    ))}
-                  </select>
+                  <Textarea
+                    name="schoolAddress"
+                    defaultValue={editingSchool.schoolAddress || ""}
+                    placeholder="Street address, city, state, postal code..."
+                    rows={3}
+                  />
                 </div>
               </div>
 
@@ -844,7 +668,7 @@ export default function AdminSchools() {
 
                 <div>
                   <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Authorized Signature
+                    Authorized Signature (Principal/Head Teacher)
                   </label>
                   <Input
                     ref={signatureInputRef}
@@ -863,45 +687,6 @@ export default function AdminSchools() {
                       />
                     </div>
                   )}
-                </div>
-              </div>
-
-              {/* Timezone & Gateway */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Timezone
-                  </label>
-                  <select
-                    name="timezone"
-                    defaultValue={editingSchool.timezone}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    required
-                  >
-                    {timezones.map((tz) => (
-                      <option key={tz.value} value={tz.value}>
-                        {tz.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Payment Gateway
-                  </label>
-                  <select
-                    name="gatewayPreference"
-                    defaultValue={editingSchool.gatewayPreference}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    required
-                  >
-                    {gateways.map((g) => (
-                      <option key={g.gatewayId} value={g.gatewayId}>
-                        {g.paymentGatewayName}
-                      </option>
-                    ))}
-                  </select>
                 </div>
               </div>
 
