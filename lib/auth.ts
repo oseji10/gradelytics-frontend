@@ -25,6 +25,11 @@ export const getRole = (): string | null => {
   return user?.role || null;
 };
 
+export const getUserRole = (): string | null => {
+  const user = getUserData();
+  return user?.role || null;
+};
+
 export const getUserName = (): string | null => {
   const user = getUserData();
   return user ? `${user.firstName} ${user.lastName}` : '';

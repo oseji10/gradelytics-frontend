@@ -98,7 +98,7 @@ interface Student {
   house?: House | null; 
   passport?: string | null;
   parentId: number | null;
-  parents: Parent[];
+  parents2: Parent[];
   classes: SchoolClass[];
   created_at: string;
   updated_at: string;
@@ -113,7 +113,7 @@ export default function AdminStudents() {
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
   const [clubs, setClubs] = useState<Club[]>([]);
-  const [parents, setParents] = useState<Parent[]>([]);
+  const [parents2, setParents] = useState<Parent[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -160,7 +160,7 @@ export default function AdminStudents() {
           classesRes,
           housesRes,
           clubsRes,
-          parentsRes,
+          parents2Res,
           studentsRes,
         ] = await Promise.all([
           api.get("/classes/school"),
@@ -173,7 +173,7 @@ export default function AdminStudents() {
         setClasses(classesRes.data || []);
         setHouses(housesRes.data || []);
         setClubs(clubsRes.data || []);
-        setParents(parentsRes.data || []);
+        setParents(parents2Res.data || []);
 
         const sorted = (studentsRes.data || []).slice().sort(
           (a: Student, b: Student) =>
@@ -215,7 +215,7 @@ export default function AdminStudents() {
     gender: student?.gender || "",
     bloodGroup: student?.bloodGroup || "",
     classId: student?.classes?.[0]?.classId?.toString() || "",
-    parentId: student?.parents?.[0]?.parentId?.toString() || "",
+    parentId: student?.parents2?.[0]?.parentId?.toString() || "",
     admissionNumber: student?.admissionNumber || "",
     // Pre-fill club and house IDs (use null if not assigned)
     club: student?.clubId?.toString() || "none",
@@ -379,8 +379,8 @@ const getPassportUrl = (passport?: string | null) => {
     student.classes?.[0]?.className || "—";
 
   const getParentName = (student: Student) => {
-    if (!student.parents || student.parents.length === 0) return "Not assigned";
-    const p = student.parents[0];
+    if (!student.parents2 || student.parents2.length === 0) return "Not assigned";
+    const p = student.parents2[0];
     return `${p?.user?.firstName} ${p?.user?.lastName}${p?.user?.otherNames ? ` ${p?.user?.otherNames}` : ""}`;
   };
 
@@ -752,8 +752,8 @@ const getPassportUrl = (passport?: string | null) => {
 
         <div>
           <Label>Parent / Guardian (optional)</Label>
-          {parents.length === 0 ? (
-            <p className="text-sm text-destructive py-2">No parents available</p>
+          {parents2.length === 0 ? (
+            <p className="text-sm text-destructive py-2">No parents2 available</p>
           ) : (
             <Select
               value={formData.parentId}
@@ -764,7 +764,7 @@ const getPassportUrl = (passport?: string | null) => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">No parent assigned</SelectItem>
-                {parents.map((p) => (
+                {parents2.map((p) => (
                   <SelectItem key={p.parentId} value={p.parentId.toString()}>
                     {`${p.user.firstName} ${p.user.lastName}`}
                     {p.user.email && ` (${p.user.email})`}

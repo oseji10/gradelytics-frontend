@@ -29,6 +29,7 @@ import {
   AttendanceIcon,
   AssessmentIcon,
   ReportIcon,
+  CBTIcon,
 } from "../icons/index";
 import SidebarWidget from "./SidebarWidget";
 
@@ -135,11 +136,11 @@ const getMenuItems = (role: UserRole): MenuItem[] => {
       icon: <Icon src={ReportIcon} />,
       name: "Reports",
       children: [
-        {
-          icon: <Icon src={StudentsIcon} />,
-          name: "Student Performance",
-          path: "/dashboard/admin/student-performance",
-        },
+        // {
+        //   icon: <Icon src={StudentsIcon} />,
+        //   name: "Student Performance",
+        //   path: "/dashboard/admin/student-performance",
+        // },
         {
           icon: <Icon src={AttendanceIcon} />,
           name: "Broadsheet Report",
@@ -168,6 +169,52 @@ const getMenuItems = (role: UserRole): MenuItem[] => {
       ],
     },
 
+
+    // CBT Management with submenus
+    {
+      icon: <Icon src={CBTIcon} />,
+      name: "CBT & Exams",
+      children: [
+        {
+          icon: <Icon src={CBTIcon} />,
+          name: "CBTs",
+          path: "/dashboard/admin/cbt",
+        },
+        {
+          icon: <Icon src={AttendanceIcon} />,
+          name: "Question Bank",
+          path: "/dashboard/admin/cbt/questions",
+        },
+        {
+          icon: <Icon src={AttendanceIcon} />,
+          name: "Attendance Report",
+          path: "/dashboard/admin/reports/attendance",
+        },
+        {
+          icon: <Icon src={AssessmentIcon} />,
+          name: "Exam & Assessment Results",
+          path: "/dashboard/admin/reports/exam-results",
+        },
+        {
+          icon: <Icon src={ParentIcon} />,
+          name: "Parent Feedback",
+          path: "/dashboard/admin/reports/feedback",
+        },
+        {
+          icon: <Icon src={TeacherIcon} />,
+          name: "Teacher Performance",
+          path: "/dashboard/admin/reports/teacher-performance",
+        },
+      ],
+    },
+
+      {
+      icon: <Icon src={LockIcon} />,
+      name: "Pin Management",
+      path: "/dashboard/admin/pin-management",
+    },
+
+   
     {
       icon: <Icon src={LockIcon} />,
       name: "Settings",
@@ -178,11 +225,11 @@ const getMenuItems = (role: UserRole): MenuItem[] => {
       name: "Support",
       path: "/dashboard/admin/support",
     },
-    {
-      icon: <Icon src={UserCircleIcon} />,
-      name: "Profile",
-      path: "/dashboard/profile",
-    },
+    // {
+    //   icon: <Icon src={UserCircleIcon} />,
+    //   name: "Profile",
+    //   path: "/dashboard/profile",
+    // },
   ];
 
   // Super Admin sees Businesses (Tenants)

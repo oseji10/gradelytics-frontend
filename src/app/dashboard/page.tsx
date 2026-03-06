@@ -9,6 +9,7 @@ import { getRole } from "../../../lib/auth";
 const DashboardPage: React.FC = () => {
   const [role, setRole] = useState<string | null>(null);
 
+  
   useEffect(() => {
     const userRole = getRole();
     setRole(userRole);

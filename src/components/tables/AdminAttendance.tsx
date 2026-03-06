@@ -127,7 +127,7 @@ export default function MarkAttendance() {
         const ex = data.attendance?.find((r: any) => r.studentId === s.studentId);
         initial[s.studentId] = {
           studentId: s.studentId,
-          status: (ex?.status as "present" | "absent" | "late") ?? "present",
+          status: (ex?.status as "present" | "absent" | "late") ?? "absent",
           notes: ex?.notes ?? "",
         };
       });
@@ -236,27 +236,35 @@ export default function MarkAttendance() {
 };
 
   const handleBulkMark = (status: "present" | "absent" | "late") => {
-    if (!isEditable) return;
+  if (!isEditable) return;
 
-    let changed = false;
+  let changed = false;
 
-    setAttendance((prev) => {
-      const next = { ...prev };
-      students.forEach((s) => {
-        const current = next[s.studentId];
-        if (current && current.status !== status) {
-          next[s.studentId] = { ...current, status };
-          changed = true;
-          scheduleSave(s.studentId);
-        }
-      });
-      return next;
+  setAttendance((prev) => {
+    const next = { ...prev };
+
+    students.forEach((s) => {
+      const current = next[s.studentId];
+
+      if (current && current.status !== status) {
+        const updated = { ...current, status };
+
+        next[s.studentId] = updated;
+        changed = true;
+
+        // ✅ Pass updated record correctly
+        scheduleSave(s.studentId, updated);
+      }
     });
 
-    if (changed) {
-      toast.success(`All students marked as ${status}`);
-    }
-  };
+    return next;
+  });
+
+  if (changed) {
+    toast.success(`All students marked as ${status}`);
+  }
+};
+
 
   const handleSaveAllNow = async () => {
     if (!selectedClassId || !selectedDate) {

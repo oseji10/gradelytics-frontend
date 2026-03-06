@@ -37,6 +37,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { ChevronLeftIcon, MessageSquare, User, Printer } from "lucide-react";
 import api from "../../../lib/api"; // adjust path according to your project
+import { cn } from "@/lib/utils";
 
 interface SchoolClass {
   classId: number;
@@ -286,6 +287,18 @@ export default function ClassResultSummary() {
     return `${pos}ᵗʰ`;
   };
 
+
+// Add these helpers
+const getTeacherColor = (has: boolean) =>
+  has ? "bg-green-200 text-green-800 hover:bg-green-200 border-green-300" : "bg-gray-100 text-gray-500 hover:bg-gray-200 border-gray-300";
+
+const getPrincipalColor = (has: boolean) =>
+  has ? "bg-purple-200 text-purple-800 hover:bg-purple-200 border-purple-300" : "bg-gray-100 text-gray-500 hover:bg-gray-200 border-gray-300";
+
+const getBadgeIcon = (hasComment: boolean) =>
+  hasComment ? <MessageSquare className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5 opacity-40" />;
+
+
   if (!resultData) {
     // early return handled in render below
   }
@@ -334,7 +347,7 @@ export default function ClassResultSummary() {
               </SelectContent>
             </Select>
 
-            {resultData && resultData.subjects.length > 0 && (
+            {/* {resultData && resultData.subjects.length > 0 && (
               <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
                 <SelectTrigger className="w-64">
                   <SelectValue placeholder="Filter by Subject" />
@@ -348,7 +361,7 @@ export default function ClassResultSummary() {
                   ))}
                 </SelectContent>
               </Select>
-            )}
+            )} */}
           </div>
         </div>
 
@@ -506,14 +519,49 @@ export default function ClassResultSummary() {
       </TableCell>
 
       {/* Remarks buttons (screen only) */}
-      <TableCell className="remarks-column-cell print:hidden text-center space-x-1">
-        <Button variant="ghost" size="icon" onClick={() => openTeacherModal(student)}>
-          <User className="h-4 w-4" />
-        </Button>
-        <Button variant="ghost" size="icon" onClick={() => openPrincipalModal(student)}>
-          <MessageSquare className="h-4 w-4" />
-        </Button>
-      </TableCell>
+      {/* Remarks indicators + clickable area (screen only) */}
+<TableCell className="remarks-column-cell print:hidden text-center">
+  <div className="flex items-center justify-center gap-2.5">
+    <Badge
+  variant="outline"
+  className={cn(
+    "cursor-pointer min-w-[110px] flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border",
+    getTeacherColor(!!student.teacherComment && student.teacherComment.trim() !== "")
+  )}
+  onClick={() => openTeacherModal(student)}
+>
+      {getBadgeIcon(!!student.teacherComment && student.teacherComment.trim() !== "")}
+      Teacher
+      {student.teacherComment && student.teacherComment.trim() !== "" ? (
+        <span className="ml-1 text-[10px] opacity-90">✓</span>
+      ) : (
+        <span className="ml-1 text-[10px] opacity-50">–</span>
+      )}
+    </Badge>
+
+    <Badge
+  variant="outline"
+  className={cn(
+    "cursor-pointer min-w-[110px] flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border",
+    getPrincipalColor(!!student.principalComment && student.principalComment.trim() !== "")
+  )}
+  onClick={() => openPrincipalModal(student)}
+>
+      <MessageSquare className={cn(
+        "h-3.5 w-3.5",
+        student.principalComment && student.principalComment.trim() !== ""
+          ? "text-foreground"
+          : "opacity-40"
+      )} />
+      Principal
+      {student.principalComment && student.principalComment.trim() !== "" ? (
+        <span className="ml-1 text-[10px] opacity-90">✓</span>
+      ) : (
+        <span className="ml-1 text-[10px] opacity-50">–</span>
+      )}
+    </Badge>
+  </div>
+</TableCell>
 
       {/* Print-only teacher comment */}
       <TableCell className="hidden print:table-cell print-comment-cell text-left text-xs align-top max-w-[180px]">

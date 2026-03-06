@@ -65,6 +65,9 @@ import AssessmentIcon from "./assessment.svg";
 import ReportIcon from "./report.svg";
 import BroadsheetIcon from "./broadsheet.svg";
 import ChevronRightIcon from "./chevron-right.svg";
+import CBTIcon from "./cbt.svg";
+import ImageIcon from "./image.svg";
+import TrashIcon from "./trash.svg";
 export {
   BillIcon,
   DownloadIcon,
@@ -132,6 +135,9 @@ export {
   AssessmentIcon,
   ReportIcon,
   BroadsheetIcon,
-  ChevronRightIcon
+  ChevronRightIcon,
+  CBTIcon,
+  ImageIcon,
+  TrashIcon,
 };
 
