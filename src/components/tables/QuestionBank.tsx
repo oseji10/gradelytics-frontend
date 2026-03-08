@@ -51,11 +51,12 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 /* ---------------- types ---------------- */
 
 interface Question {
-  questionId: number;  // Changed from 'id'
+  questionId: number;
   questionText: string;
-  type: 'single_choice' | 'multi_choice' | 'theory';
-  difficulty: 'easy' | 'medium' | 'hard';
+  type: "single_choice" | "multi_choice" | "theory";
+  difficulty: "easy" | "medium" | "hard";
   mark: number;
+  classId: number | null;
   subjectId: number;
   topicId: number | null;
   imageUrl?: string | null;
@@ -64,30 +65,28 @@ interface Question {
   updated_at: string;
   schoolId: number;
   createdBy: number;
-  subject: {  // Added subject object
+  subject: {
     subjectId: number;
     subjectName: string;
   };
-  topic: {    // Added topic object (can be null)
+  topic: {
     topicId: number;
     topicName: string;
   } | null;
+
+  className?: string;
+  subjectName?: string;
+  topicName?: string;
 }
 
 interface QuestionOption {
-  optionId: number;  // Changed from 'id'
+  optionId: number;
   questionId: number;
   optionLabel: string;
   optionText: string;
   isCorrect: boolean;
   created_at: string;
   updated_at: string;
-}
-
-interface QuestionOption {
-  id: number;
-  optionText: string;
-  isCorrect: boolean;
 }
 
 interface Subject {
@@ -102,11 +101,17 @@ interface Topic {
 }
 
 interface FilterState {
+  classId: string;
   subjectId: string;
   topicId: string;
   difficulty: string;
   type: string;
   search: string;
+}
+
+interface SchoolClass {
+  classId: number;
+  className: string;
 }
 
 /* ---------------- component ---------------- */
@@ -116,16 +121,17 @@ export default function QuestionBank() {
   const [filteredQuestions, setFilteredQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
   const [subjects, setSubjects] = useState<Subject[]>([]);
-const [topics, setTopics] = useState<Topic[]>([]);
-  
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
   // Filter state
-  const [filters, setFilters] = useState<FilterState>({
-    subjectId: "",
-    topicId: "",
-    difficulty: "",
-    type: "",
-    search: "",
-  });
+const [filters, setFilters] = useState<FilterState>({
+  classId: "",
+  subjectId: "",
+  topicId: "",
+  difficulty: "",
+  type: "",
+  search: "",
+});
 
   // Add/Edit modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -140,6 +146,7 @@ const [topics, setTopics] = useState<Topic[]>([]);
     difficulty: "medium" as 'easy' | 'medium' | 'hard',
     mark: "",
     subjectId: "",
+    classId: "",
     topicId: "",
     imageUrl: "",
     options: [] as { optionText: string; isCorrect: boolean }[],
@@ -174,11 +181,11 @@ const [topics, setTopics] = useState<Topic[]>([]);
     const questionsRes = await api.get("/cbt/questions");
     // The questions are in data.data (the nested data property)
     const questionsData = questionsRes.data?.data?.data || [];
-    console.log("Questions data:", questionsData); // For debugging
-    
-    // Fetch subjects
-    const subjectsRes = await api.get("/school/subjects");
-    setSubjects(Array.isArray(subjectsRes.data) ? subjectsRes.data : []);
+
+    const classesRes = await api.get("/classes/school");
+const classesData = classesRes.data?.data || classesRes.data || [];
+setClasses(Array.isArray(classesData) ? classesData : []);
+
     
     // Fetch topics
     const topicsRes = await api.get("/cbt/topics");
@@ -186,11 +193,18 @@ const [topics, setTopics] = useState<Topic[]>([]);
     setTopics(Array.isArray(topicsData) ? topicsData : []);
 
     // Sort questions by created_at if they exist
-    const sorted = Array.isArray(questionsData) 
-      ? questionsData.slice().sort((a: Question, b: Question) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        )
-      : [];
+    const normalizedQuestions: Question[] = Array.isArray(questionsData)
+  ? questionsData.map((q: any) => ({
+      ...q,
+      subjectName: q.subject?.subjectName || "",
+      topicName: q.topic?.topicName || "",
+    }))
+  : [];
+
+const sorted = normalizedQuestions.slice().sort(
+  (a: Question, b: Question) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+);
 
     setQuestions(sorted);
     setFilteredQuestions(sorted);
@@ -246,6 +260,11 @@ const applyFilters = () => {
     );
   }
 
+  if (filters.classId && filters.classId !== "all") {
+  const cid = Number(filters.classId);
+  filtered = filtered.filter((q) => q.classId === cid);
+}
+
   setFilteredQuestions(filtered);
 };
 
@@ -253,6 +272,7 @@ const resetFilters = () => {
   setFilters({
     subjectId: "",
     topicId: "",
+    classId: "",
     difficulty: "",
     type: "",
     search: "",
@@ -273,6 +293,7 @@ const openModal = (mode: "add" | "edit", question?: Question) => {
       difficulty: question.difficulty,
       mark: String(question.mark ?? ""),
       subjectId: String(question.subjectId ?? ""),
+      classId: String(question.classId ?? ""),
       topicId: question.topicId ? String(question.topicId) : "",
       imageUrl: question.imageUrl || "",
       options: question.options?.map(opt => ({
@@ -287,6 +308,7 @@ const openModal = (mode: "add" | "edit", question?: Question) => {
       difficulty: "medium",
       mark: "",
       subjectId: "",
+      classId: "",
       topicId: "",
       imageUrl: "",
       options: [{ optionText: "", isCorrect: false }],
@@ -367,6 +389,7 @@ const openModal = (mode: "add" | "edit", question?: Question) => {
       type: formData.type,
       difficulty: formData.difficulty,
       mark: parseInt(formData.mark),
+      classId: parseInt(formData.classId),
       subjectId: parseInt(formData.subjectId),
       topicId: formData.topicId ? parseInt(formData.topicId) : null,
       ...(formData.imageUrl && { imageUrl: formData.imageUrl }),
@@ -450,7 +473,7 @@ const openModal = (mode: "add" | "edit", question?: Question) => {
 };
 
   const handleDeleteQuestion = async (questionId: number) => {
-    const question = questions.find((q) => q.questionid === questionId);
+    const question = questions.find((q) => q.questionId === questionId);
     const questionPreview = question?.questionText.substring(0, 50) + "...";
 
     const loadingId = toast.loading("Deleting question...");
@@ -458,8 +481,8 @@ const openModal = (mode: "add" | "edit", question?: Question) => {
     setDeleteLoadingId(questionId);
 
     try {
-      await api.delete(`/questions/${questionId}`);
-      setQuestions((prev) => prev.filter((q) => q.questionid !== questionId));
+      await api.delete(`/cbt/questions/${questionId}`);
+      setQuestions((prev) => prev.filter((q) => q.questionId !== questionId));
 
       toast.success("Question deleted", {
         description: "Question has been permanently removed",
@@ -493,6 +516,25 @@ const openModal = (mode: "add" | "edit", question?: Question) => {
     return labels[type as keyof typeof labels] || type;
   };
 
+
+
+ const fetchSubjectsByClass = async (classId: string) => {
+  if (!classId) {
+    setSubjects([]);
+    return;
+  }
+
+  try {
+    const subjectsRes = await api.get(`/classes/${classId}/subjects`);
+    const subjectsData = subjectsRes.data?.data || subjectsRes.data || [];
+    setSubjects(Array.isArray(subjectsData) ? subjectsData : []);
+  } catch (err) {
+    setSubjects([]);
+    toast.error("Failed to load subjects");
+  }
+};
+
+
   return (
     <div className="relative min-h-screen bg-gray-50 dark:bg-gray-950">
       <div className="space-y-6 px-4 py-6 md:px-6 lg:px-8">
@@ -524,13 +566,48 @@ const openModal = (mode: "add" | "edit", question?: Question) => {
 
         {/* Filters */}
         <Card className="p-4">
+
+          <div>
+  <Label htmlFor="class">Class</Label>
+  <Select
+    value={filters.classId}
+    onValueChange={(value) => {
+      setFilters({
+        ...filters,
+        classId: value === "all" ? "" : value,
+        subjectId: "",
+        topicId: "",
+      });
+      fetchSubjectsByClass(value === "all" ? "" : value);
+    }}
+  >
+    <SelectTrigger>
+      <SelectValue placeholder="All Classes" />
+    </SelectTrigger>
+    <SelectContent>
+      <SelectItem value="all">All Classes</SelectItem>
+      {classes.map((cls) => (
+        <SelectItem key={cls.classId} value={String(cls.classId)}>
+          {cls.className}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+</div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 <div>
   <Label htmlFor="subject">Subject</Label>
-  <Select
-    value={filters.subjectId}
-    onValueChange={(value) => setFilters({ ...filters, subjectId: value, topicId: "" })}
-  >
+<Select
+  value={filters.subjectId}
+  onValueChange={(value) =>
+    setFilters({
+      ...filters,
+      subjectId: value === "all" ? "" : value,
+      topicId: "",
+    })
+  }
+>
     <SelectTrigger>
       <SelectValue placeholder="All Subjects" />
     </SelectTrigger>
@@ -561,7 +638,7 @@ const openModal = (mode: "add" | "edit", question?: Question) => {
     topics
   .filter(t => t.subjectId?.toString() === filters.subjectId)
       .map((topic) => (
-        <SelectItem key={topic.topicId} value={topic.topicId}>
+        <SelectItem key={topic.topicId} value={String(topic.topicId)}>
           {topic.topicName}
         </SelectItem>
       ))
@@ -673,7 +750,7 @@ const openModal = (mode: "add" | "edit", question?: Question) => {
               ) : (
                 filteredQuestions.map((q) => (
                   <TableRow
-                    key={q.questionid}
+                    key={q.questionId}
                     className="hover:bg-muted/40 transition-colors border-b last:border-b-0"
                   >
                     <TableCell className="px-6 py-4">
@@ -709,7 +786,7 @@ const openModal = (mode: "add" | "edit", question?: Question) => {
                     <TableCell className="px-6 py-4">
                       <div className="text-sm">
                         <div>{q.subjectName}</div>
-                        <div className="text-xs text-muted-foreground">{q.topicName}</div>
+                        <div className="text-xs text-muted-foreground">{q.topicName || "No topic"}</div>
                       </div>
                     </TableCell>
                     <TableCell className="px-6 py-4 text-right space-x-2">
@@ -736,9 +813,9 @@ const openModal = (mode: "add" | "edit", question?: Question) => {
                             variant="ghost"
                             size="sm"
                             className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            disabled={deleteLoadingId === q.questionid}
+                            disabled={deleteLoadingId === q.questionId}
                           >
-                            {deleteLoadingId === q.questionid ? "..." : "Delete"}
+                            {deleteLoadingId === q.questionId ? "..." : "Delete"}
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
@@ -751,7 +828,7 @@ const openModal = (mode: "add" | "edit", question?: Question) => {
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction
-                              onClick={() => handleDeleteQuestion(q.questionid)}
+                              onClick={() => handleDeleteQuestion(q.questionId)}
                               className="bg-red-600 hover:bg-red-700"
                             >
                               Delete
@@ -858,18 +935,46 @@ const openModal = (mode: "add" | "edit", question?: Question) => {
                   </div>
                 </div>
 
-                {/* Subject and Topic */}
+                <div>
+  <Label htmlFor="class">Class *</Label>
+  <Select
+    value={formData.classId}
+    onValueChange={(value) => {
+      setFormData({
+        ...formData,
+        classId: value,
+        subjectId: "",
+        topicId: "",
+      });
+      fetchSubjectsByClass(value);
+    }}
+  >
+    <SelectTrigger>
+      <SelectValue placeholder="Select class" />
+    </SelectTrigger>
+    <SelectContent>
+      {classes.map((cls) => (
+        <SelectItem key={cls.classId} value={String(cls.classId)}>
+          {cls.className}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+</div>
                 {/* Subject and Topic */}
 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
   <div>
     <Label htmlFor="subject">Subject *</Label>
-    <Select
-      value={formData.subjectId}
-      onValueChange={(value) => {
-        console.log("Selected subject:", value); // Debug log
-        setFormData({ ...formData, subjectId: value, topicId: "" });
-      }}
-    >
+<Select
+  value={formData.subjectId}
+  onValueChange={(value) => {
+    setFormData({
+      ...formData,
+      subjectId: value,
+      topicId: "",
+    });
+  }}
+>
       <SelectTrigger>
         <SelectValue placeholder="Select subject" />
       </SelectTrigger>
@@ -1059,7 +1164,7 @@ const openModal = (mode: "add" | "edit", question?: Question) => {
                       <div className="space-y-2">
                         {selectedQuestion.options.map((opt, idx) => (
                           <div 
-                            key={opt.id} 
+                            key={opt.optionId} 
                             className={`p-3 rounded-lg border ${
                               opt.isCorrect ? 'border-green-500 bg-green-50' : ''
                             }`}

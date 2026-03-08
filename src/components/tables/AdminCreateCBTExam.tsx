@@ -44,6 +44,8 @@ import { ChevronLeftIcon } from "@/icons";
 import api from "../../../lib/api";
 import Icon from "@/components/Icons";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import router from "next/dist/shared/lib/router/router";
+import { useRouter } from "next/dist/client/components/navigation";
 
 /* ---------------- types ---------------- */
 
@@ -96,6 +98,7 @@ export default function AdminCBTExams() {
   const [currentExam, setCurrentExam] = useState<Exam | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const router = useRouter();
   // Form data for exam creation
   const [formData, setFormData] = useState({
     // Step 1: Basics
@@ -266,24 +269,6 @@ setExams(sorted);
     setCurrentExam(exam || null);
     setCurrentStep(1);
     
-//     if (exam) {
-//       setFormData({
-//   title: exam.title,
-//   classId: String(exam.classId),
-//   subjectId: String(exam.subjectId),
-//   instructions: exam.instructions,
-//   duration: exam.duration.toString(),
-//   startsAt: exam.startsAt,
-//   endsAt: exam.endsAt,
-//   attemptLimit: exam.attemptLimit.toString(),
-//   shuffleQuestions: exam.shuffleQuestions,
-//   shuffleOptions: exam.shuffleOptions,
-//   showResultImmediately: exam.showResultImmediately,
-//   examType: exam.examType,
-//   countsAs: exam.countsAs || "CA1",
-//   maxScore: exam.maxScore?.toString() || "",
-//   weight: exam.weight?.toString() || "",
-// });
 if (exam) {
   const classIdStr = String(exam.classId);
 
@@ -586,6 +571,47 @@ const toDateTimeLocal = (value?: string | null) => {
 };
 
 
+const [publishLoadingId, setPublishLoadingId] = useState<number | null>(null);
+
+const togglePublishExam = async (exam: Exam) => {
+  const loadingId = toast.loading(
+    exam.status === "published"
+      ? "Unpublishing exam..."
+      : "Publishing exam..."
+  );
+
+  setPublishLoadingId(exam.id);
+
+  try {
+    const res = await api.patch(`/cbt/exams/${exam.id}/publish`);
+
+    const updated = res.data?.data;
+
+    setExams((prev) =>
+      prev.map((e) =>
+        e.id === exam.id
+          ? {
+              ...e,
+              status: updated.isPublished ? "published" : "draft",
+            }
+          : e
+      )
+    );
+
+    toast.success(
+      updated.isPublished ? "Exam published" : "Exam unpublished",
+      { id: loadingId }
+    );
+  } catch (err: any) {
+    toast.error("Operation failed", {
+      description: err?.response?.data?.message || "Could not change publish status",
+      id: loadingId,
+    });
+  } finally {
+    setPublishLoadingId(null);
+  }
+};
+
   return (
     <div className="relative min-h-screen bg-gray-50 dark:bg-gray-950">
       <div className="space-y-6 px-4 py-6 md:px-6 lg:px-8">
@@ -652,6 +678,36 @@ const toDateTimeLocal = (value?: string | null) => {
                     >
                       Edit
                     </Button>
+                      <Button
+  variant="outline"
+  size="sm"
+  className="bg-[#1F6F43] hover:bg-[#1F6F43]/90 text-white"
+  onClick={(e) => {
+    e.stopPropagation();
+    toast("Opening build view for this exam...");
+    router.push(`/dashboard/admin/cbt/exam-builder?examId=${exam.id}`);
+  }}
+  disabled={exam.status === "published"}
+>
+  Build
+</Button>
+
+                    <Button
+  size="sm"
+  variant="outline"
+  disabled={publishLoadingId === exam.id}
+  onClick={(e) => {
+    e.stopPropagation();
+    togglePublishExam(exam);
+  }}
+>
+  {publishLoadingId === exam.id
+    ? "Processing..."
+    : exam.status === "published"
+      ? "Unpublish"
+      : "Publish"}
+</Button>
+
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
@@ -777,6 +833,36 @@ const toDateTimeLocal = (value?: string | null) => {
                       >
                         Edit
                       </Button>
+                      <Button
+  variant="outline"
+  size="sm"
+  className="bg-[#1F6F43] hover:bg-[#1F6F43]/90 text-white"
+  onClick={(e) => {
+    e.stopPropagation();
+    toast("Opening build view for this exam...");
+    router.push(`/dashboard/admin/cbt/exam-builder?examId=${exam.id}`);
+  }}
+  disabled={exam.status === "published"}
+>
+  Build
+</Button>
+
+<Button
+  size="sm"
+  variant="outline"
+  disabled={publishLoadingId === exam.id}
+  onClick={(e) => {
+    e.stopPropagation();
+    togglePublishExam(exam);
+  }}
+>
+  {publishLoadingId === exam.id
+    ? "Processing..."
+    : exam.status === "published"
+      ? "Unpublish"
+      : "Publish"}
+</Button>
+
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button
